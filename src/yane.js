@@ -17,10 +17,8 @@ onmessage = function(message) {
         .then(() => {
             const cpu = new CPU(memory);
             for (let i = 0; i < 100; i++) {
-            // while (true){
                 cpu.step();
             }
         })
         .catch((e) => console.error(e));
-
 }
