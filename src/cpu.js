@@ -2,9 +2,6 @@
  *
  * Logic for 6502 emulation
  * 
- * @dependencies
- *      utils.js
- *      memory.js
  */
 'use strict';
 
