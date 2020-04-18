@@ -8,11 +8,9 @@
  */
 'use strict';
 
-// import {uint8, uint16, setOrReset} from './utils.js';
+import {uint8, uint16, setOrReset} from './utils.js';
 
-// export { CPU };
-
-class CPU {
+export class CPU {
     set accumulator(v) { this.#accumulator = uint8(v); }
     set xIndex(v) { this.#xIndex = uint8(v); }
     set yIndex(v) { this.#yIndex = uint8(v); }
@@ -52,7 +50,7 @@ class CPU {
         instruction.call(this);
 
         if (CPU.#INSTRUCTION_CYCLES[opcode] === 0) {
-            throw new Error('Unsupported opcode: ' + opcode + ' after ' + this.#clock + ' cycles');
+            throw new Error(`Unsupported opcode: ${opcode} after ${this.#clock} cycles`);
         }
 
         this.programCounter += CPU.#INSTRUCTION_LENGTH[opcode];

@@ -2,15 +2,12 @@
  *
  * Maps NES rom to memory.
  * 
- * @dependencies
- *      memory.js
- * 
  */
 'use strict';
 
-// export { mapper };
+import { uint8, uint16 } from './utils.js';
 
-async function mapper(memory, file) {
+export async function mapper(memory, file) {
     console.log(file);
 
     const nes = await file.slice(0, 3).text();
@@ -20,11 +17,10 @@ async function mapper(memory, file) {
     console.log('Valid NES rom');
 
     const header = new Uint8Array(await file.slice(0, 15).arrayBuffer());
-    const [prgSize, chrSize, trainingSize] = await Promise.all([
-        getPRGSize(header), 
-        getCHRSize(header), 
-        getTrainingSize(header)
-    ]);
+
+    const prgSize = getPRGSize(header);
+    const chrSize = getCHRSize(header);
+    const trainingSize = getTrainingSize(header);
 
     console.log(file.size, 'misc rom', file.size - 16 - prgSize - chrSize);
     console.log('prg', prgSize);
@@ -43,10 +39,16 @@ async function mapper(memory, file) {
         writeCHR(memory, chr, chrSize),
     ]);
 
+    for (let i = 0; i < 16 * 1024; i++) {
+        const val1 = memory.read(0x8000 + i);
+        const val2 = memory.read(0xc000 + i);
+        console.assert(val1 === val2)
+    }
+
     console.log(memory);
 }
 
-async function getPRGSize(header) {
+function getPRGSize(header) {
     const lsb = header[4];
     const msb = header[9] & 0xf;
 
@@ -56,7 +58,7 @@ async function getPRGSize(header) {
     return 16 * 1024 * ((msb << 8) | lsb);  // Size in 16KiB units.
 }
 
-async function getCHRSize(header) {
+function getCHRSize(header) {
     const lsb = header[5];
     const msb = header[9] >> 4;
 
@@ -66,7 +68,7 @@ async function getCHRSize(header) {
     return 8 * 1024 * ((msb << 8) | lsb);  // Size in 8KiB units.
 }
 
-async function getTrainingSize(header) {
+function getTrainingSize(header) {
     const trainingBit = header[9] & (1 << 2);
 
     // TODO: Support.
