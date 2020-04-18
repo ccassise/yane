@@ -1,6 +1,6 @@
 'use strict';
 
-// export { uint8, uint16, setOrReset };
+export { uint8, uint16, setOrReset };
 
 function uint8(x) {
     return x & 0xff;

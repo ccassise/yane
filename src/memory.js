@@ -2,17 +2,11 @@
  * 
  * Handles the NES reading and writing from/to memory locations.
  * 
- * @dependencies
- *      utils.js
- * 
  */
 'use strict';
+import { uint8, uint16 } from './utils.js';
 
-// import { uint8, uint16 } from './utils.js';
-
-// export { Memory };
-
-class Memory {
+export class Memory {
     #memory;
 
     constructor() {
