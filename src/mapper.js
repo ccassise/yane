@@ -1,41 +1,39 @@
 /* mapper.js
  *
- * Maps NES rom to memory.
+ * Maps .nes file to NES memory.
  * 
+ * @dependencies
+ *      memory.js
  */
 'use strict';
 
-import { uint8, uint16 } from './utils.js';
-
-export async function mapper(memory, file) {
-    const nes = await file.slice(0, 3).text();
-    const eof = new Uint8Array(await file.slice(3, 4).arrayBuffer())[0];
+function mapper(memory, buffer) {
+    const nes = new TextDecoder().decode(buffer.slice(0, 3));
+    const eof = buffer[3];
     if (nes !== 'NES' || eof !== 0x1a) throw new Error('Not a valid NES rom');
 
     console.log('Valid NES rom');
 
-    const header = new Uint8Array(await file.slice(0, 15).arrayBuffer());
+    const header = buffer.slice(0, 16);
 
     const prgSize = getPRGSize(header);
     const chrSize = getCHRSize(header);
     const trainingSize = getTrainingSize(header);
 
-    console.log(file.size, 'misc rom', file.size - 16 - prgSize - chrSize);
+    console.log(buffer.length, 'misc rom', buffer.length - header.length - prgSize - chrSize);
     console.log('prg', prgSize);
     console.log('chr', chrSize);
 
-    const prgStart = 16 + trainingSize;
+    const prgStart = header.length + trainingSize;
     const prgEnd = prgStart + prgSize;
     const chrStart = prgEnd;
     const chrEnd = prgEnd + chrSize;
 
-    const prg = new Uint8Array(await file.slice(prgStart, prgEnd).arrayBuffer());
-    const chr = new Uint8Array(await file.slice(chrStart, chrEnd).arrayBuffer());
+    const prg = buffer.slice(prgStart, prgEnd);
+    const chr = buffer.slice(chrStart, chrEnd);
 
-    await Promise.all([
-        writePRG(memory, prg, prgSize),
-        writeCHR(memory, chr, chrSize),
-    ]);
+    writePRG(memory, prg, prgSize);
+    writeCHR(memory, chr, chrSize);
 }
 
 function getPRGSize(header) {
@@ -68,25 +66,25 @@ function getTrainingSize(header) {
 }
 
 /// Writes PRG contents from rom to memory.
-async function writePRG(memory, data, size) {
+function writePRG(memory, data, size) {
     const base = 0x8000;
     const maxSize = 32 * 1024;
 
     for (let i = 0; i < maxSize; i++) {
         const j = i % size;  // Mirror if size doesn't fill entire 32KiB.
-        const address = uint16(base + i);
+        const address = base + i;
         memory.write(address, data[j]);
     }
 }
 
 /// Writes CHR contents from rom to memory.
-async function writeCHR(memory, data, size) {
+function writeCHR(memory, data, size) {
     const base = 0x6000;
     const maxSize = 8 * 1024;
 
     for (let i = 0; i < maxSize; i++) {
         const j = i % size;  // Mirror if size doesn't fill entire 8KiB.
-        const address = uint16(base + i);
+        const address = base + i;
         memory.write(address, data[j]);
     }
 }
