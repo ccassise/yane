@@ -5,11 +5,12 @@ document.getElementById('rom').addEventListener('change', loadRom, false);
 function loadRom() {
     if (window.Worker) {
         const rom = this.files[0];
-        const nes = new Worker('./src/yane.js', { type: 'module' });
+        const nes = new Worker('./src/yane.js');
         nes.postMessage(rom);
 
         nes.onmessage = function(msg) {
             createDownloadLink(msg.data);
+            nes.terminate();
         }
     } else {
         console.error('Worker not supported');
