@@ -12,13 +12,16 @@ import { mapper } from './mapper.js';
 onmessage = function(message) {
     const rom = message.data;
     const memory = new Memory();
+    let response = '';
 
     mapper(memory, rom)
         .then(() => {
             const cpu = new CPU(memory);
-            for (let i = 0; i < 100; i++) {
+            for (let i = 0; i < 8000; i++) {
+                response += `${cpu.toString()}\n`;
+
                 cpu.step();
-            }
-        })
-        .catch((e) => console.error(e));
+        }})
+        .catch((e) => console.error(e))
+        .finally(() => this.postMessage(response));
 }

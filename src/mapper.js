@@ -8,8 +8,6 @@
 import { uint8, uint16 } from './utils.js';
 
 export async function mapper(memory, file) {
-    console.log(file);
-
     const nes = await file.slice(0, 3).text();
     const eof = new Uint8Array(await file.slice(3, 4).arrayBuffer())[0];
     if (nes !== 'NES' || eof !== 0x1a) throw new Error('Not a valid NES rom');
@@ -38,14 +36,6 @@ export async function mapper(memory, file) {
         writePRG(memory, prg, prgSize),
         writeCHR(memory, chr, chrSize),
     ]);
-
-    for (let i = 0; i < 16 * 1024; i++) {
-        const val1 = memory.read(0x8000 + i);
-        const val2 = memory.read(0xc000 + i);
-        console.assert(val1 === val2)
-    }
-
-    console.log(memory);
 }
 
 function getPRGSize(header) {
