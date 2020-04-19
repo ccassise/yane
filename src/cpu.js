@@ -8,46 +8,45 @@
 import {uint8, uint16, setOrReset} from './utils.js';
 
 export class CPU {
-    set accumulator(v) { this.#accumulator = uint8(v); }
-    set xIndex(v) { this.#xIndex = uint8(v); }
-    set yIndex(v) { this.#yIndex = uint8(v); }
-    set status(v) { this.#status = uint8(v); }
-    set stackPointer(v) { this.#stackPointer = uint8(v); }
-    set programCounter(v) { this.#programCounter = uint16(v); }
+    set accumulator(v)    { this.#accumulator     = uint8(v); }
+    set xIndex(v)         { this.#xIndex          = uint8(v); }
+    set yIndex(v)         { this.#yIndex          = uint8(v); }
+    set status(v)         { this.#status          = uint8(v); }
+    set stackPointer(v)   { this.#stackPointer    = uint8(v); }
+    set programCounter(v) { this.#programCounter  = uint16(v); }
 
-    get accumulator() { return this.#accumulator; }
-    get xIndex() { return this.#xIndex; }
-    get yIndex() { return this.#yIndex; }
-    get status() { return this.#status; }
-    get stackPointer() { return this.#stackPointer; }
+    get accumulator()    { return this.#accumulator; }
+    get xIndex()         { return this.#xIndex; }
+    get yIndex()         { return this.#yIndex; }
+    get status()         { return this.#status; }
+    get stackPointer()   { return this.#stackPointer; }
     get programCounter() { return this.#programCounter; }
 
     constructor(memory) {
-        this.accumulator = 0x00;
-        this.xIndex = 0x00;
-        this.yIndex = 0x00;
-        this.status = 0x34;
+        this.accumulator  = 0x00;
+        this.xIndex       = 0x00;
+        this.yIndex       = 0x00;
+        this.status       = 0x24;
         this.stackPointer = 0xfd;
-        this.#clock = 0;
-        this.#memory = memory;
+        this.#clock       = 0;
+        this.#memory      = memory;
 
         const start_pcl = uint16(this.#memory.read(0xfffc));
         const start_pch = uint16(this.#memory.read(0xfffd) << 8);
         this.programCounter = start_pch | start_pcl;
 
+        // TODO: Remove - only used for nestest.nes
         console.log('pc', this.#programCounter.toString(16));
         this.#programCounter = 0xc000;
     }
 
     step() {
-        console.log(this.toString());
-
         const opcode = this._fetch();
         const instruction = this.#INSTRUCTIONS[opcode];
         instruction.call(this);
 
-        if (CPU.#INSTRUCTION_CYCLES[opcode] === 0) {
-            throw new Error(`Unsupported opcode: ${opcode} after ${this.#clock} cycles`);
+        if (CPU.#INSTRUCTION_CYCLES[opcode] === null) {
+            throw new Error(`Unsupported opcode: ${opcode} after ${this.#clock} steps`);
         }
 
         this.programCounter += CPU.#INSTRUCTION_LENGTH[opcode];
@@ -55,23 +54,33 @@ export class CPU {
     }
 
     toString() {
-        const opcode = this._fetch();
-        const len = CPU.#INSTRUCTION_LENGTH[opcode];
-        const idk = new Array(len);
+        const len = CPU.#INSTRUCTION_LENGTH[this._fetch()];
+        if (len === null) throw new Error(`Unsupported opcode: ${this._fetch()} after ${this.#clock} steps`);
+        const instructions = new Array(len);
         for (let i = 0; i < len; i++) {
-            idk.push(this.#memory.read(this.programCounter + i));
+            instructions.push(this.#memory.read(this.programCounter + i));
         }
 
-        const idk2 = idk.map((x) => x.toString(16)).join(' ');
+        // Convert all values to uppercase hex and pad as neccessary.
+        const pc = this.programCounter.toString(16).toUpperCase().padStart(4, 0);
+        const instruction = instructions.map((x) => {
+            return x.toString(16).toUpperCase().padStart(2, 0);
+        }).join(' ').trim().padEnd(9, ' ');
+        const a = this.accumulator.toString(16).toUpperCase().padStart(2, 0);
+        const x = this.xIndex.toString(16).toUpperCase().padStart(2, 0);
+        const y = this.yIndex.toString(16).toUpperCase().padStart(2, 0);
+        const p = this.status.toString(16).toUpperCase().padStart(2, 0);
+        const sp = this.stackPointer.toString(16).toUpperCase().padStart(2, 0);
 
-            // `${this._fetch().toString(16)} ` +
-        return `${this.programCounter.toString(16)}  ` +
-            `${idk2} ` +
-            `A:${this.accumulator.toString(16)} ` +
-            `X:${this.xIndex.toString(16)} ` +
-            `Y:${this.yIndex.toString(16)} ` +
-            `P:${this.status.toString(16)} ` +
-            `SP:${this.stackPointer.toString(16)}`;
+        return (
+            `${pc}  ` +
+            `${instruction} ` +
+            `A:${a} ` +
+            `X:${x} ` +
+            `Y:${y} ` +
+            `P:${p} ` +
+            `SP:${sp}`
+        );
     }
 
     /// CPU registers.
@@ -97,22 +106,22 @@ export class CPU {
 
     /// Number of bytes each instruction uses.
     static #INSTRUCTION_LENGTH = [
-        1, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 0, 3, 3, 0,
-        2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-        3, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-        1, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-        1, 2, 0, 0, 0, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-        0, 2, 0, 0, 2, 2, 2, 0, 1, 0, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 0, 3, 0, 0,
-        2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
-        2, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-        2, 2, 0, 0, 0, 2, 2, 0, 1, 3, 0, 0, 0, 3, 3, 0,
+        1,    2, null, null, null, 2, 2, null, 1, 2,    1,    null, null, 3, 3,    null,
+        2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
+        3,    2, null, null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
+        1,    2, null, null, null, 2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
+        1,    2, null, null, null, 2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
+        null, 2, null, null, 2,    2, 2, null, 1, null, 1,    null, 3,    3, 3,    null,
+        2,    2, null, null, 2,    2, 2, null, 1, 3,    1,    null, null, 3, null, null,
+        2,    2, 2,    null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, 2,    2, 2, null, 1, 3,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
+        2,    2, null, null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
+        2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
     ];
 
     /// Number of cycles each instruction uses. Does not include page crosses.
@@ -183,7 +192,7 @@ export class CPU {
         const addressLow = this.#memory.read(this.programCounter + 1);
         const addressHigh = this.#memory.read(this.programCounter + 2) << 8;
 
-        return uint16(addressHigh | addressLow);
+        return addressHigh | addressLow;
     }
 
     /// Absolute X
@@ -198,15 +207,14 @@ export class CPU {
 
     /// Immediate
     _imme() {
-        return uint16(this.#memory.read(this.programCounter + 1));
+        return uint16(this.programCounter + 1);
     }
 
     /// Implied
-    /// If this function is called it is an error because implied addressing
-    /// modes do not need to get a value from memory.
     _impl() {
-        console.error('Implied was called');
-        return 0x0000;
+        // If this function is called it is an error because implied addressing
+        // modes do not need to get a value from memory.
+        throw new Error('Implied was called');
     }
 
     /// Indirect
@@ -215,42 +223,32 @@ export class CPU {
         // indirect vector falls on a page boundary (e.g. $xxFF where xx is any value
         // from $00 to $FF). In this case fetches the LSB from $xxFF as expected but
         // takes the MSB from $xx00.
-        const target = this.#memory.read(this.programCounter + 1);
+        const target = this._abs();
 
-        const addressLow = this.#memory.read(uint8(target));
-        const addressHigh = this.#memory.read(uint8(target + 1)) << 8;
+        const addressLow = this.#memory.read(target);
+        const addressHigh = this.#memory.read(target & 0xff00 | uint8((target & 0x00ff) + 1)) << 8;
 
-        return uin16(addressHigh | addressLow);
+        return addressHigh | addressLow;
     }
 
     /// Indirect X
     _indX() {
-        const programCounter = this.programCounter;
-        const xIndex = this.xIndex;
-
-        const target = this.#memory.read(programCounter + 1) + xIndex;
+        const target = this.#memory.read(this.programCounter + 1) + this.xIndex;
 
         const addressLow = this.#memory.read(uint8(target));
-        const addressHigh = this.#memory.read(uint8(target + 1));
+        const addressHigh = this.#memory.read(uint8(target + 1)) << 8;
 
-        return uin16(addressHigh | addressLow);
+        return addressHigh | addressLow;
     }
 
     /// Indirect Y
     _indY() {
-        const programCounter = this.programCounter;
-        const yIndex = this.yIndex;
+        const target = this.#memory.read(this.programCounter + 1);
 
-        const target = this.#memory.read(programCounter + 1);
+        const addressLow = this.#memory.read(target);
+        const addressHigh = this.#memory.read(uint8(target + 1)) << 8;
 
-        const realTargetLow = uint8(this.#memory.read(uint8(target)) + yIndex);
-        const realTargetHigh = this.#memory.read(uint8(target + 1)) << 8;
-        const realTarget = realTargetHigh | realTargetLow;
-
-        const addressLow = uint16(this.#memory.read(realTarget));
-        const addressHigh = uint16(this.#memory.read(realTarget + 1) << 8);
-
-        return uint16((addressLow | addressHigh) + yIndex);
+        return uint16((addressHigh | addressLow) + this.yIndex);
     }
 
     /// Relative
@@ -320,9 +318,9 @@ export class CPU {
     }
 
     /// Sets overflow if bit 7 in arguments are different, otherwise resets it.
-    _setOrResetOverflow(a, b) {
+    _setOrResetOverflow(a, b, result) {
         // Determines if overflow occurred and moves the bit to the overflow flag position.
-        const overflow = uint8(((a >> 7) ^ (b >> 7)) << 6);
+        const overflow = uint8(((a ^ result) & (b ^ result) & 0x80) >> 1);
         this.status = setOrReset(this.status, overflow, CPU.#OVERFLOW);
     }
 
@@ -347,13 +345,14 @@ export class CPU {
 
     /// ADC - Add Memory to Accumulator with Carry
     _adc() {
+        const carry = this.status & CPU.#CARRY;
         const m = this._memoryValue();
 
-        const resultWithCarry = uint16(this.accumulator + m + CPU.#CARRY);
+        const resultWithCarry = uint16(this.accumulator + m + carry);
         const result = uint8(resultWithCarry);
 
         this._setOrResetCarry(resultWithCarry);
-        this._setOrResetOverflow(result, this.accumulator);
+        this._setOrResetOverflow(this.accumulator, m, result);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
 
@@ -362,13 +361,14 @@ export class CPU {
 
     /// SBC - Subtract Memory from Accumulator with Borrow
     _sbc() {
-        const m = uint8(~this._memoryValue() + CPU.#CARRY);
+        const carry = this.status & CPU.#CARRY;
+        const m = uint8(~this._memoryValue() + carry);
 
         const resultWithCarry = uint16(this.accumulator + m);
         const result = uint8(resultWithCarry);
 
         this._setOrResetCarry(resultWithCarry);
-        this._setOrResetOverflow(result, this.accumulator);
+        this._setOrResetOverflow(this.accumulator, m, result);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
 
@@ -433,14 +433,16 @@ export class CPU {
 
     /// RTI - Return from Interrupt
     _rti() {
-        this.status = this._stackPop();
+        this.status = (this._stackPop() & 0xef) | CPU.#EXPANSION;
         const pcl = uint16(this._stackPop());
         const pch = uint16(this._stackPop() << 8);
-        this.programCounter = pch | pcl;
+        // - 1 so program counter will be at correct location after adding instruction length.
+        this.programCounter = (pch | pcl) - 1;
     }
 
     /// JMP - Jump to New Location
     _jmp() {
+        // - 3 so program counter will be at correct location after adding instruction length.
         this.programCounter = this._memoryAddress() - 3;
     }
 
@@ -460,7 +462,8 @@ export class CPU {
         const pcl = this.programCounter + 2;
         this._stackPush(pch);
         this._stackPush(pcl);
-        this._stackPush(this.status);
+        this._stackPush(this.status | 0x30);
+        this._sei();
         this.programCounter = 0xffff | 0xfffe;
     }
 
@@ -539,7 +542,7 @@ export class CPU {
 
     /// CMP - Compare Memory and Accumulator
     _cmp() {
-        const result_with_carry = uint16(this.accumulator - this._memoryValue());
+        const result_with_carry = uint16(this.accumulator - this._memoryValue() ^ (1 << 8));
         const result = uint8(result_with_carry);
 
         this._setOrResetCarry(result_with_carry);
@@ -549,10 +552,11 @@ export class CPU {
 
     /// BIT - Test Bits in Memory with Accumulator
     _bit() {
-        const result = this.accumulator & this._memoryValue();
+        const value = this._memoryValue();
+        const result = this.accumulator & value;
 
-        this.status = setOrReset(this.status, result, CPU.#OVERFLOW);
-        this._setOrResetNegative(result);
+        this.status = setOrReset(this.status, value, CPU.#OVERFLOW);
+        this.status = setOrReset(this.status, value, CPU.#NEGATIVE);
         this._setOrResetZero(result);
     }
 
@@ -610,7 +614,7 @@ export class CPU {
 
     /// CPX - Compare Index Register X to Memory
     _cpx() {
-        const result_with_carry = uint16(this.xIndex - this._memoryValue());
+        const result_with_carry = uint16(this.xIndex - this._memoryValue() ^ (1 << 8));
         const result = uint8(result_with_carry);
 
         this._setOrResetCarry(result_with_carry);
@@ -620,7 +624,7 @@ export class CPU {
 
     /// CPY - Compare Index Register Y to Memory
     _cpy() {
-        const result_with_carry = uint16(this.yIndex - this._memoryValue());
+        const result_with_carry = uint16(this.yIndex - this._memoryValue() ^ (1 << 8));
         const result = uint8(result_with_carry);
 
         this._setOrResetCarry(result_with_carry);
@@ -662,7 +666,8 @@ export class CPU {
         const pcl = uint8(this.programCounter + 2);
         this._stackPush(pch);
         this._stackPush(pcl);
-        this.programCounter = this._memoryAddress();
+        // - 3 so program counter will be at correct location after adding instruction length.
+        this.programCounter = this._memoryAddress() - 3;
     }
 
     /// RTS - Return from Subroutine
@@ -698,17 +703,16 @@ export class CPU {
 
     /// PHP - Push Processor Status on Stack
     _php() {
-        this._stackPush(this.status);
+        this._stackPush(this.status | 0x30);
     }
 
     /// PLP - Pull Processor Status from Stack
     _plp() {
-        this.status = this._stackPop();
+        this.status = (this._stackPop() & 0xef) | CPU.#EXPANSION;
     }
 
     /// LSR - Logical Shift Right
-    _lsr() {
-        const value = this._memoryValue();
+    _lsr(value) {
         const result = value >> 1;
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
@@ -718,17 +722,17 @@ export class CPU {
 
     /// ROL with result being the accumulator.
     _lsra() {
-        this.accumulator = this._lsr();
+        this.accumulator = this._lsr(this.accumulator);
     }
 
     /// ROL with result being memory value.
     _lsrm() {
-        this.#memory.write(this._memoryAddress(), this._lsr());
+        const v = this._memoryValue();
+        this.#memory.write(this._memoryAddress(), this._lsr(v));
     }
 
     /// ASL - Arithmetic Shift Left
-    _asl() {
-        const value = this._memoryValue();
+    _asl(value) {
         const result = uint8(value << 1);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
@@ -738,12 +742,13 @@ export class CPU {
 
     /// ASL with result being the accumulator.
     _asla() {
-        this.accumulator = this._asl();
+        this.accumulator = this._asl(this.accumulator);
     }
 
     /// ASL with result being memory value.
     _aslm() {
-        this.#memory.write(this._memoryAddress(), this._asl());
+        const v = this._memoryValue();
+        this.#memory.write(this._memoryAddress(), this._asl(v));
     }
 
     /// ROL - Rotate Left
