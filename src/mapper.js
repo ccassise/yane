@@ -7,7 +7,7 @@
  */
 'use strict';
 
-function mapper(memory, buffer) {
+function mapper(memory, ppu, buffer) {
     const nes = new TextDecoder().decode(buffer.slice(0, 3));
     const eof = buffer[3];
     if (nes !== 'NES' || eof !== 0x1a) throw new Error('Not a valid NES rom');
@@ -15,6 +15,7 @@ function mapper(memory, buffer) {
     console.log('Valid NES rom');
 
     const header = buffer.slice(0, 16);
+    console.log(header);
 
     const prgSize = getPRGSize(header);
     const chrSize = getCHRSize(header);
@@ -33,7 +34,7 @@ function mapper(memory, buffer) {
     const chr = buffer.slice(chrStart, chrEnd);
 
     writePRG(memory, prg, prgSize);
-    writeCHR(memory, chr, chrSize);
+    writeCHR(ppu, chr, chrSize);
 }
 
 function getPRGSize(header) {
@@ -72,19 +73,22 @@ function writePRG(memory, data, size) {
 
     for (let i = 0; i < maxSize; i++) {
         const j = i % size;  // Mirror if size doesn't fill entire 32KiB.
-        const address = base + i;
-        memory.write(address, data[j]);
+        const address = uint16(base + i);
+        // TODO: This should be more elegant?
+        //memory.write(address, data[j]);
+        memory._memory[address] = uint8(data[j]);
     }
 }
 
 /// Writes CHR contents from rom to memory.
-function writeCHR(memory, data, size) {
-    const base = 0x6000;
+function writeCHR(ppu, data, size) {
+    const base = 0x0000;
     const maxSize = 8 * 1024;
 
     for (let i = 0; i < maxSize; i++) {
         const j = i % size;  // Mirror if size doesn't fill entire 8KiB.
         const address = base + i;
-        memory.write(address, data[j]);
+        ppu.write(address, data[j]);
     }
 }
+

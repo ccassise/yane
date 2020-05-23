@@ -103,4 +103,8 @@ dist
 # TernJS port file
 .tern-port
 
+# Personal ignores
 .vscode/
+tags
+package.json
+package-lock.json

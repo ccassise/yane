@@ -9,45 +9,62 @@
 'use strict';
 
 class CPU {
-    constructor(memory) {
+    constructor(nes) {
+        this._nes = nes;
+
+        this._interrupts = [];
+
         // CPU Registers.
-        this._accumulator  = 0x00;
-        this._xIndex       = 0x00;
-        this._yIndex       = 0x00;
-        this._status       = 0x24;
+        this._accumulator = 0x00;
+        this._xIndex = 0x00;
+        this._yIndex = 0x00;
+        this._status = 0x34;
         this._stackPointer = 0xfd;
 
-        this._clock       = 0;
-        this._memory      = memory;
+        this._cycles = 0;  // Number of cycles current instruction uses.
+        this._totalCycles = 7;  // Total number of cycles.
 
-        const startPCL = uint16(this._memory.read(0xfffc));
-        const startPCH = uint16(this._memory.read(0xfffd) << 8);
+        const startPCL = uint16(this._nes.read(0xfffc));
+        const startPCH = uint16(this._nes.read(0xfffd) << 8);
         this._programCounter = startPCH | startPCL;
 
-        // TODO: Remove - only used for nestest.nes
+        // TODO: Remove - only used for testing CPU with nestest.nes
         console.log('pc', this._programCounter.toString(16));
-        this._programCounter = 0xc000;
+        // this._programCounter = 0xc000;
     }
 
+    /// Step through a single instruction in the CPU. Returns number of cycles the instruction used.
     step() {
-        const opcode = this._fetch();
+        this._cycles = 0;
+
+        const opcode = (() => {
+            if (this._interrupts.length > 0) {
+                this._interrupts = [];
+                return 0x00;
+            } else {
+                return this._opcode();
+            }
+        })();
+
+        const len = CPU._INSTRUCTION_LENGTH[opcode];
+        if (len === 0) throw new Error(`Unsupported opcode: ${opcode.toString(16)} after ${this._totalCycles} cycles`);
+
         const instruction = this._instructions[opcode];
         instruction.call(this);
 
-        if (CPU._INSTRUCTION_CYCLES[opcode] === null) {
-            throw new Error(`Unsupported opcode: ${opcode} after ${this._clock} steps`);
-        }
-
         this._programCounter += CPU._INSTRUCTION_LENGTH[opcode];
-        this._clock += CPU._INSTRUCTION_CYCLES[opcode];
+        this._cycles += CPU._INSTRUCTION_CYCLES[opcode];
+        this._totalCycles += this._cycles;
+
+        return this._cycles;
     }
 
     toString() {
-        const len = CPU._INSTRUCTION_LENGTH[this._fetch()];
-        if (len === null) throw new Error(`Unsupported opcode: ${this._fetch()} after ${this._clock} steps`);
+        const len = CPU._INSTRUCTION_LENGTH[this._opcode()];
+        if (len === 0) throw new Error(`Unsupported opcode: ${this._opcode().toString(16)} after ${this._totalCycles} cycles`);
         const instructions = new Array(len); // Opcode and bytes the instruction uses.
         for (let i = 0; i < len; i++) {
-            instructions.push(this._memory.read(this._programCounter + i));
+            instructions.push(this._nes.read(this._programCounter + i));
         }
 
         // Convert all values to uppercase hex and pad as neccessary.
@@ -61,103 +78,145 @@ class CPU {
         const p = this._status.toString(16).toUpperCase().padStart(2, 0);
         const sp = this._stackPointer.toString(16).toUpperCase().padStart(2, 0);
 
+        const addrMode = (() => {
+            if (this._addressing_modes[this._opcode()]) return this._addressing_modes[this._opcode()].name
+            else return 'null';
+        })();
+
         return (
+            `${this._instructions[this._opcode()].name} ` +
+            `${addrMode.padEnd(5, ' ')} ` +
             `${pc}  ` +
             `${instruction} ` +
             `A:${a} ` +
             `X:${x} ` +
             `Y:${y} ` +
             `P:${p} ` +
-            `SP:${sp}`
+            `SP:${sp} ` +
+            `CYC:${this._totalCycles}`
         );
     }
 
+    triggerInterrupt(interrupt) {
+        this._interrupts.push(interrupt);
+    }
+
+    static get INTERRUPT() {
+        return {
+            IRQ: 'IRQ',
+            NMI: 'NMI',
+        };
+    }
+
     /// CPU status flags.
-    static get _CARRY()             { return 1 << 0; }
-    static get _ZERO()              { return 1 << 1; }
+    static get _CARRY() { return 1 << 0; }
+    static get _ZERO() { return 1 << 1; }
     static get _INTERRUPT_DISABLE() { return 1 << 2; }
-    static get _DECIMAL()           { return 1 << 3; }
-    static get _BREAK()             { return 1 << 4; }
-    static get _EXPANSION()         { return 1 << 5; }
-    static get _OVERFLOW()          { return 1 << 6; }
-    static get _NEGATIVE()          { return 1 << 7; }
+    static get _DECIMAL() { return 1 << 3; }
+    static get _BREAK() { return 1 << 4; }
+    static get _EXPANSION() { return 1 << 5; }
+    static get _OVERFLOW() { return 1 << 6; }
+    static get _NEGATIVE() { return 1 << 7; }
 
     /// Number of bytes each instruction uses.
-    static get _INSTRUCTION_LENGTH() { 
+    static get _INSTRUCTION_LENGTH() {
         return [
-            1,    2, null, null, null, 2, 2, null, 1, 2,    1,    null, null, 3, 3,    null,
-            2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
-            3,    2, null, null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
-            1,    2, null, null, null, 2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
-            1,    2, null, null, null, 2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
-            null, 2, null, null, 2,    2, 2, null, 1, null, 1,    null, 3,    3, 3,    null,
-            2,    2, null, null, 2,    2, 2, null, 1, 3,    1,    null, null, 3, null, null,
-            2,    2, 2,    null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, 2,    2, 2, null, 1, 3,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
-            2,    2, null, null, 2,    2, 2, null, 1, 2,    1,    null, 3,    3, 3,    null,
-            2,    2, null, null, null, 2, 2, null, 1, 3,    null, null, null, 3, 3,    null,
+            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            3, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 0, 3, 0, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
         ];
     }
 
     /// Number of cycles each instruction uses. Does not include page crosses.
     static get _INSTRUCTION_CYCLES() {
         return [
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+            7, 6, 0, 0, 3, 3, 5, 0, 3, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            6, 6, 0, 0, 3, 3, 5, 0, 3, 2, 2, 0, 3, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 5, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            2, 6, 2, 0, 3, 3, 3, 0, 2, 2, 2, 0, 4, 4, 4, 0,
+            2, 6, 0, 0, 4, 4, 4, 0, 2, 5, 2, 0, 0, 5, 0, 0,
+            2, 6, 2, 0, 3, 3, 3, 0, 2, 2, 2, 0, 4, 4, 4, 0,
+            2, 5, 0, 0, 4, 4, 4, 0, 2, 4, 2, 0, 4, 4, 4, 0,
+            2, 6, 2, 0, 3, 3, 5, 0, 2, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            2, 6, 2, 0, 3, 3, 5, 0, 2, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
         ];
     }
 
-    set _accumulator(v)    { this._A  = uint8(v); }
-    set _xIndex(v)         { this._X  = uint8(v); }
-    set _yIndex(v)         { this._Y  = uint8(v); }
-    set _status(v)         { this._P  = uint8(v); }
-    set _stackPointer(v)   { this._SP = uint8(v); }
+    /// Instructions that are affected by page crosses and number of cycles a page cross adds.
+    static get _PAGE_CROSS() {
+        return [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+        ];
+    }
+
+    set _accumulator(v) { this._A = uint8(v); }
+    set _xIndex(v) { this._X = uint8(v); }
+    set _yIndex(v) { this._Y = uint8(v); }
+    set _status(v) { this._P = uint8(v); }
+    set _stackPointer(v) { this._SP = uint8(v); }
     set _programCounter(v) { this._PC = uint16(v); }
 
-    get _accumulator()    { return this._A; }
-    get _xIndex()         { return this._X; }
-    get _yIndex()         { return this._Y; }
-    get _status()         { return this._P; }
-    get _stackPointer()   { return this._SP; }
+    get _accumulator() { return this._A; }
+    get _xIndex() { return this._X; }
+    get _yIndex() { return this._Y; }
+    get _status() { return this._P; }
+    get _stackPointer() { return this._SP; }
     get _programCounter() { return this._PC; }
 
+    // TODO: Add unofficial NOP addressing modes to table.
     get _addressing_modes() {
         return [
-            this._impl,  this._indX, null,       null, null,       this._zpg,  this._zpg,  null, this._impl, this._imme, null, /*A*/ null, null,       this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, null,       this._zpgX, this._zpgX, null, this._impl, this._absY, null,       null, null,       this._absX, this._absX, null,
-            this._abs,   this._indX, null,       null, this._zpg,  this._zpg,  this._zpg,  null, this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, null,       this._zpgX, this._zpgX, null, this._impl, this._absY, null,       null, null,       this._absX, this._absX, null,
-            this._impl,  this._indX, null,       null, null,       this._zpg,  this._zpg,  null, this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, null,       this._zpgX, this._zpgX, null, this._impl, this._absY, null,       null, null,       this._absX, this._absX, null,
-            this._impl,  this._indX, null,       null, null,       this._zpg,  this._zpg,  null, this._impl, this._imme, null, /*A*/ null, this._ind,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, null,       this._zpgX, this._zpgX, null, this._impl, this._absY, null,       null, null,       this._absX, this._absX, null,
-            null,        this._indX, null,       null, this._zpg,  this._zpg,  this._zpg,  null, this._impl, null,       this._impl, null, this._abs,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, this._zpgX, this._zpgX, this._zpgY, null, this._impl, this._absY, this._impl, null, null,       this._absX, null,       null,
-            this._imme,  this._indX, this._imme, null, this._zpg,  this._zpg,  this._zpg,  null, this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, this._zpgX, this._zpgX, this._zpgY, null, this._impl, this._absY, this._impl, null, this._absX, this._absX, this._absY, null,
-            this._imme,  this._indX, null,       null, this._zpg,  this._zpg,  this._zpg,  null, this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, null,       this._zpgX, this._zpgX, null, this._impl, this._absY, null,       null, null,       this._absX, this._absX, null,
-            this._imme,  this._indX, null,       null, this._zpg,  this._zpg,  this._zpg,  null, this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,  null,
-            this._rel,   this._indY, null,       null, null,       this._zpgX, this._zpgX, null, this._impl, this._absY, null,       null, null,       this._absX, this._absX, null,
+            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, null,       this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._abs,  this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._ind,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            null,       this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, null,       this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      this._zpgX, this._zpgX, this._zpgY, null,      this._impl, this._absY, this._impl, null, null,       this._absX, null,        null,
+            this._imme, this._indX, this._imme, null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      this._zpgX, this._zpgX, this._zpgY, null,      this._impl, this._absY, this._impl, null, this._absX, this._absX, this._absY,  null,
+            this._imme, this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._imme, this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
         ];
     }
 
@@ -183,26 +242,41 @@ class CPU {
     }
 
     /// Gets current opcode from memory.
-    _fetch() {
-        return this._memory.read(this._programCounter);
+    _opcode() {
+        return this._nes.read(this._programCounter);
+    }
+
+    _isPageCross(initialPC, newPC) {
+        return uint8(newPC) < uint8(initialPC);
     }
 
     /// Absolute
     _abs() {
-        const addressLow = this._memory.read(this._programCounter + 1);
-        const addressHigh = this._memory.read(this._programCounter + 2) << 8;
+        const addressLow = this._nes.read(this._programCounter + 1);
+        const addressHigh = this._nes.read(this._programCounter + 2) << 8;
 
         return addressHigh | addressLow;
     }
 
     /// Absolute X
     _absX() {
-        return uint16(this._abs() + this._xIndex);
+        const initialAddress = this._abs();
+        const result = initialAddress + this._xIndex;
+
+        if (this._isPageCross(initialAddress, result)) this._cycles += CPU._PAGE_CROSS[this._opcode()];
+
+        return uint16(result);
     }
 
     /// Absolute Y
     _absY() {
-        return uint16(this._abs() + this._yIndex);
+        const initialAddress = this._abs();
+        const result = initialAddress + this._yIndex;
+
+        if (this._isPageCross(initialAddress, result)) this._cycles += CPU._PAGE_CROSS[this._opcode()];
+
+        return uint16(result);
+        // return uint16(this._abs() + this._yIndex);
     }
 
     /// Immediate
@@ -225,30 +299,34 @@ class CPU {
         // takes the MSB from $xx00.
         const target = this._abs();
 
-        const addressLow = this._memory.read(target);
-        const addressHigh = this._memory.read(target & 0xff00 | uint8((target & 0x00ff) + 1)) << 8;
+        const addressLow = this._nes.read(target);
+        const addressHigh = this._nes.read(target & 0xff00 | uint8((target & 0x00ff) + 1)) << 8;
 
         return addressHigh | addressLow;
     }
 
     /// Indirect X
     _indX() {
-        const target = this._memory.read(this._programCounter + 1) + this._xIndex;
+        const target = this._nes.read(this._programCounter + 1) + this._xIndex;
 
-        const addressLow = this._memory.read(uint8(target));
-        const addressHigh = this._memory.read(uint8(target + 1)) << 8;
+        const addressLow = this._nes.read(uint8(target));
+        const addressHigh = this._nes.read(uint8(target + 1)) << 8;
 
         return addressHigh | addressLow;
     }
 
     /// Indirect Y
     _indY() {
-        const target = this._memory.read(this._programCounter + 1);
+        const target = this._nes.read(this._programCounter + 1);
 
-        const addressLow = this._memory.read(target);
-        const addressHigh = this._memory.read(uint8(target + 1)) << 8;
+        const addressLow = this._nes.read(target);
+        const addressHigh = this._nes.read(uint8(target + 1)) << 8;
 
-        return uint16((addressHigh | addressLow) + this._yIndex);
+        const result = uint16((addressHigh | addressLow) + this._yIndex);
+
+        if (this._isPageCross(addressHigh | addressLow, result)) this._cycles += CPU._PAGE_CROSS[this._opcode()];
+
+        return result;
     }
 
     /// Relative
@@ -258,21 +336,21 @@ class CPU {
 
     /// Zeropage
     _zpg() {
-        return this._memory.read(this._programCounter + 1);
+        return this._nes.read(this._programCounter + 1);
     }
 
     /// Zeropage X
     _zpgX() {
-        return uint8(this._memory.read(this._programCounter + 1) + this._xIndex);
+        return uint8(this._nes.read(this._programCounter + 1) + this._xIndex);
     }
 
     /// Zeropage Y
     _zpgY() {
-        return uint8(this._memory.read(this._programCounter + 1) + this._yIndex);
+        return uint8(this._nes.read(this._programCounter + 1) + this._yIndex);
     }
 
     _memoryAddress() {
-        const opcode = this._fetch();
+        const opcode = this._opcode();
         const addressingFn = this._addressing_modes[opcode];
         if (addressingFn === null) {
             console.error('Unsuported opcode', opcode);
@@ -284,7 +362,7 @@ class CPU {
     /// Gets the value in memory address.
     _memoryValue() {
         const address = this._memoryAddress();
-        return this._memory.read(address);
+        return this._nes.read(address);
     }
 
 
@@ -294,13 +372,13 @@ class CPU {
     static get _STACK_BASE() { return 0x0100; }
 
     _stackPush(x) {
-        this._memory.write(CPU._STACK_BASE | this._stackPointer, x);
+        this._nes.write(CPU._STACK_BASE | this._stackPointer, x);
         this._stackPointer--;
     }
 
     _stackPop() {
         this._stackPointer++;
-        return this._memory.read(CPU._STACK_BASE | this._stackPointer);
+        return this._nes.read(CPU._STACK_BASE | this._stackPointer);
     }
 
     /*****************************************************************************
@@ -340,7 +418,7 @@ class CPU {
     /// STA - Store Accumulator in Memory
     _sta() {
         const address = this._memoryAddress();
-        this._memory.write(address, this._accumulator);
+        this._nes.write(address, this._accumulator);
     }
 
     /// ADC - Add Memory to Accumulator with Carry
@@ -434,6 +512,7 @@ class CPU {
     /// RTI - Return from Interrupt
     _rti() {
         this._status = (this._stackPop() & 0xef) | CPU._EXPANSION;
+        // this._status = this._stackPop();
         const pcl = uint16(this._stackPop());
         const pch = uint16(this._stackPop() << 8);
         // - 1 so program counter will be at correct location after adding instruction length.
@@ -452,19 +531,27 @@ class CPU {
         const pcl = this._programCounter + 2;
         this._stackPush(pch);
         this._stackPush(pcl);
-        this._stackPush(this._status);
-        this._programCounter = 0xfffb | 0xfffa;
+        this._stackPush(this._status | 0x30);
+        // this._stackPush(this._status & ~CPU._BREAK);
+        this._sei();
+        const addressHigh = this._nes.read(0xfffb) << 8;
+        const addressLow = this._nes.read(0xfffa);
+        this._programCounter = addressHigh | addressLow;
     }
 
     /// BRK - Break Command
     _brk() {
-        const pch = (this._programCounter + 2) >> 8;
-        const pcl = this._programCounter + 2;
+        const pch = (this._programCounter) >> 8;
+        const pcl = this._programCounter;
         this._stackPush(pch);
         this._stackPush(pcl);
         this._stackPush(this._status | 0x30);
         this._sei();
-        this._programCounter = 0xffff | 0xfffe;
+        const addressHigh = this._nes.read(0xfffb) << 8;
+        const addressLow = this._nes.read(0xfffa);
+        // const addressHigh = this._nes.read(0xffff) << 8;
+        // const addressLow = this._nes.read(0xfffe);
+        this._programCounter = (addressHigh | addressLow) - 1;
     }
 
     /// Takes a uint8 as argument and if its 7th bit is set, will return a uint16
@@ -476,76 +563,72 @@ class CPU {
         return result;
     }
 
+    /// Checks if branch instruction crossed page boundry. initialPC is the program counter of
+    /// the opcode of the branch instruction. newPC is the program counter of the instruction
+    /// after the offset has been added to it.
+    _isBranchPageCross(initialPC, newPC) {
+        // +2 because all branches have instruction length of 2 and program counter is the address
+        // of the current opcode.
+        return this._isPageCross(initialPC + 2, newPC);
+    }
+
+    /// Branch taken code. Identical for all branches.
+    _branchTaken() {
+        this._cycles++;
+        const offset = this._getOffset();
+        const newPC = this._programCounter + offset;
+        if (this._isBranchPageCross(this._programCounter, newPC)) {
+            this._cycles += CPU._PAGE_CROSS[this._opcode()];
+        }
+        this._programCounter = newPC;
+    }
+
     /// BMI - Branch on Result Minus
     _bmi() {
-        if (this._status & CPU._NEGATIVE) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (this._status & CPU._NEGATIVE) this._branchTaken();
     }
 
     /// BPL - Branch on Result Plus
     _bpl() {
-        if (!(this._status & CPU._NEGATIVE)) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (!(this._status & CPU._NEGATIVE)) this._branchTaken();
     }
 
     /// BCC - Branch on Carry Clear
     _bcc() {
-        if (!(this._status & CPU._CARRY)) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (!(this._status & CPU._CARRY)) this._branchTaken();
     }
 
     /// BCS - Branch on Carry Set
     _bcs() {
-        if (this._status & CPU._CARRY) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (this._status & CPU._CARRY) this._branchTaken();
     }
 
     /// BEQ - Branch on Result Zero
     _beq() {
-        if (this._status & CPU._ZERO) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (this._status & CPU._ZERO) this._branchTaken();
     }
 
     /// BNE - Branch on Result Not Zero
     _bne() {
-        if (!(this._status & CPU._ZERO)) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (!(this._status & CPU._ZERO)) this._branchTaken();
     }
 
     /// BVS - Branch on Overflow Set
     _bvs() {
-        if (this._status & CPU._OVERFLOW) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (this._status & CPU._OVERFLOW) this._branchTaken();
     }
 
     /// BVC - Branch on Overflow Clear
     _bvc() {
-        if (!(this._status & CPU._OVERFLOW)) {
-            const offset = this._getOffset();
-            this._programCounter = this._programCounter + offset;
-        }
+        if (!(this._status & CPU._OVERFLOW)) this._branchTaken();
     }
 
     /// CMP - Compare Memory and Accumulator
     _cmp() {
-        const result_with_carry = uint16(this._accumulator - this._memoryValue() ^ (1 << 8));
-        const result = uint8(result_with_carry);
+        const resultWithCarry = uint16(this._accumulator - this._memoryValue() ^ (1 << 8));
+        const result = uint8(resultWithCarry);
 
-        this._setOrResetCarry(result_with_carry);
+        this._setOrResetCarry(resultWithCarry);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
     }
@@ -576,12 +659,12 @@ class CPU {
 
     /// STX - Store Index Register X in Memory
     _stx() {
-        this._memory.write(this._memoryAddress(), this._xIndex);
+        this._nes.write(this._memoryAddress(), this._xIndex);
     }
 
     /// STY - Store Index Register Y in Memory
     _sty() {
-        this._memory.write(this._memoryAddress(), this._yIndex);
+        this._nes.write(this._memoryAddress(), this._yIndex);
     }
 
     /// INX - Increment Index Register X by one
@@ -614,20 +697,20 @@ class CPU {
 
     /// CPX - Compare Index Register X to Memory
     _cpx() {
-        const result_with_carry = uint16(this._xIndex - this._memoryValue() ^ (1 << 8));
-        const result = uint8(result_with_carry);
+        const resultWithCarry = uint16(this._xIndex - this._memoryValue() ^ (1 << 8));
+        const result = uint8(resultWithCarry);
 
-        this._setOrResetCarry(result_with_carry);
+        this._setOrResetCarry(resultWithCarry);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
     }
 
     /// CPY - Compare Index Register Y to Memory
     _cpy() {
-        const result_with_carry = uint16(this._yIndex - this._memoryValue() ^ (1 << 8));
-        const result = uint8(result_with_carry);
+        const resultWithCarry = uint16(this._yIndex - this._memoryValue() ^ (1 << 8));
+        const result = uint8(resultWithCarry);
 
-        this._setOrResetCarry(result_with_carry);
+        this._setOrResetCarry(resultWithCarry);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
     }
@@ -691,6 +774,7 @@ class CPU {
 
     /// TXS - Transfer Index X to Stack Pointer
     _txs() {
+        this._print = false;
         this._stackPointer = this._xIndex;
     }
 
@@ -728,7 +812,7 @@ class CPU {
     /// ROL with result being memory value.
     _lsrm() {
         const v = this._memoryValue();
-        this._memory.write(this._memoryAddress(), this._lsr(v));
+        this._nes.write(this._memoryAddress(), this._lsr(v));
     }
 
     /// ASL - Arithmetic Shift Left
@@ -748,7 +832,7 @@ class CPU {
     /// ASL with result being memory value.
     _aslm() {
         const v = this._memoryValue();
-        this._memory.write(this._memoryAddress(), this._asl(v));
+        this._nes.write(this._memoryAddress(), this._asl(v));
     }
 
     /// ROL - Rotate Left
@@ -768,7 +852,7 @@ class CPU {
     /// ROL with result being memory value.
     _rolm() {
         const v = this._memoryValue();
-        this._memory.write(this._memoryAddress(), this._rol(v));
+        this._nes.write(this._memoryAddress(), this._rol(v));
     }
 
     /// ROR - Rotate Right
@@ -788,7 +872,7 @@ class CPU {
     /// ROR with result being memory value.
     _rorm() {
         const v = this._memoryValue();
-        this._memory.write(this._memoryAddress(), this._ror(v));
+        this._nes.write(this._memoryAddress(), this._ror(v));
     }
 
     /// INC- Increment Memory by One
@@ -796,7 +880,7 @@ class CPU {
         const result = uint8(this._memoryValue() + 1);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
-        this._memory.write(this._memoryAddress(), result);
+        this._nes.write(this._memoryAddress(), result);
     }
 
     /// DEC - Decrement Memory by One
@@ -804,7 +888,7 @@ class CPU {
         const result = uint8(this._memoryValue() - 1);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
-        this._memory.write(this._memoryAddress(), result);
+        this._nes.write(this._memoryAddress(), result);
     }
 
     /// NOP - No Operation
