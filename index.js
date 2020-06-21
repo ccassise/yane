@@ -2,6 +2,8 @@
 
 document.getElementById('rom').addEventListener('change', loadRom, false);
 
+const nes = new Worker('./src/yane.js');
+
 const palette = Uint8ClampedArray.from([
     124, 124, 124, 255, 0, 0, 252, 255, 0, 0, 188, 255, 68, 40, 188, 255, 148, 0, 132, 255, 168, 0, 32, 255, 168, 16, 0, 255, 136, 20, 0, 255, 80, 48, 0, 255, 0, 120, 0, 255, 0, 104, 0, 255, 0, 88, 0, 255, 0, 64, 88, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
     188, 188, 188, 255, 0, 120, 248, 255, 0, 88, 248, 255, 104, 68, 252, 255, 216, 0, 204, 255, 228, 0, 88, 255, 228, 56, 0, 255, 228, 92, 16, 255, 172, 124, 0, 255, 0, 184, 0, 255, 0, 168, 0, 255, 0, 168, 68, 255, 0, 136, 136, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
@@ -73,7 +75,6 @@ function nearestNeighborInterp(src, dest) {
 function loadRom() {
     if (window.Worker) {
         const rom = this.files[0];
-        const nes = new Worker('./src/yane.js');
         nes.postMessage(rom);
 
         nes.onmessage = function (msg) {
@@ -85,7 +86,7 @@ function loadRom() {
                 //
                 // drawPatternTable(msg.data, 3);
                 // console.log(msg);
-                drawFrame(new Uint8ClampedArray(msg.data), 3);
+                drawFrame(new Uint8ClampedArray(msg.data), 1);
             }
         }
     } else {
@@ -124,9 +125,37 @@ function drawFrame(pattern, scale) {
     patternTable.width = 256 * scale;
     patternTable.height = 240 * scale;
     const patternCtx = patternTable.getContext('2d', { alpha: false });
+    // TOOD: this should only change when scale is changed. drawFrame should only scale the image then put image to canvas, nothing else.
     const result = new ImageData(256 * scale, 240 * scale);
 
     nearestNeighborInterp(new ImageData(pattern, 256), result);
-    patternCtx.clearRect(0, 0, patternTable.width, patternTable.height);
+    // patternCtx.clearRect(0, 0, patternTable.width, patternTable.height);
     patternCtx.putImageData(result, 0, 0);
 }
+
+function keyCodeToNesKey(key) {
+    switch (key) {
+        case 'KeyZ':       return 'A';
+        case 'KeyX':       return 'B';
+        case 'Quote':      return 'Select';
+        case 'Enter':      return 'Start';
+        case 'ArrowUp':    return 'Up';
+        case 'ArrowDown':  return 'Down';
+        case 'ArrowLeft':  return 'Left';
+        case 'ArrowRight': return 'Right';
+    }
+}
+
+document.getElementById('test-canvas').addEventListener('keydown', (e) => {
+    const key = e.code;
+    const result = keyCodeToNesKey(key);
+    if (typeof result === 'undefined') return;  // Invalid key press.
+    nes.postMessage({keydown: result});
+});
+
+document.getElementById('test-canvas').addEventListener('keyup', e => {
+    const key = e.code;
+    const result = keyCodeToNesKey(key);
+    if (typeof result === 'undefined') return;  // Invalid key press.
+    nes.postMessage({keyup: result});
+});

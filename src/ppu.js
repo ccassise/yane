@@ -1,10 +1,7 @@
 /* ppu.js
  * 
- *
+ * Picture Processing Unit.
  * 
- * @dependencies
- *      utils.js
- *      memory.js
  */
 'use strict'
 
@@ -33,9 +30,14 @@ class PPU {
             this._nes.interrupt(CPU.INTERRUPT.NMI);
         }
 
-        if (this._cycle === 0 && this._scanLine === 0) {
+        // if (this._cycle === 0 && this._scanLine === 0) {
+        //     this.renderFrame();
+        // }
+        
+        if (this._scanLine === 240 && this._cycle === 0) {
             this.renderFrame();
-            this.frameReady = true;
+            this._nes.sendFrame(this._frameBuffer);
+            // this.frameReady = true;
         }
 
         // Set vblank
@@ -60,6 +62,8 @@ class PPU {
             this._cycle = 0;
             if (this._scanLine >= 261) {
                 this._scanLine = 0;
+                this.frameReady = true;
+
             } else {
                 this._scanLine++;
             }

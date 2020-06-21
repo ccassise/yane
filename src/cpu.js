@@ -1,10 +1,7 @@
 /* cpu.js
  *
- * Logic for 6502 emulation
+ * Logic for 6502 emulation.
  * 
- * @dependencies
- *      utils.js
- *      memory.js
  */
 'use strict';
 
@@ -42,7 +39,11 @@ class CPU {
                 this._interrupts = [];
                 return 0x00;
             } else {
-                return this._opcode();
+                const result = this._opcode();
+                if (result === 0x00) {
+                    throw new Error('Actual BRK');
+                }
+                return result;
             }
         })();
 

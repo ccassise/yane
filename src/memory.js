@@ -2,8 +2,6 @@
  * 
  * Handles the NES reading and writing from/to memory locations.
  * 
- * @dependencies
- *      utils.js
  */
 'use strict';
 
@@ -37,6 +35,10 @@ class Memory {
             case 0x2007:
                 return this._nes.onDataRead(data);
                 break;
+            case 0x4016:
+                const result = this._nes.onInputRead();
+                this._memory[0x4016] = result | (data & ~0x01);
+                return result;
             default: break;
         }
         return data;
@@ -68,6 +70,8 @@ class Memory {
             case 0x2007:
                 this._nes.onDataWrite(data);
                 break;
+            case 0x4016:
+                this._nes.onInputWrite(data);
             default: break;
         }
     }
