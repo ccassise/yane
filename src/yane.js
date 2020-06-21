@@ -10,6 +10,7 @@ importScripts(
     './mapper.js',
     './memory.js',
     './ppu.js',
+    './standard-controller.js',
     './utils.js',
 );
 
@@ -24,42 +25,50 @@ class NES {
     }
 
     run() {
-        let cpuLog = [];
-        console.log(this._ppu);
+        // let cpuLog = [];
+        // console.log(this._ppu);
         try {
             // for (let i = 0; i < 500000; i++) {
-                while (true) {
-                if (cpuLog.length > 1000) cpuLog.shift();
-                cpuLog.push(this._cpu.toString() + '\n');
-                const ppuTicks = this._cpu.step() * 3;  // How many ticks the PPU needs to do to 'catch up'.
+                // while (true) {
+            const run = () => {
+                // if (cpuLog.length > 1000) cpuLog.shift();
+                // cpuLog.push(this._cpu.toString() + '\n');
+                const start = performance.now();
+                while(!this._ppu.frameReady) {
+                    const ppuTicks = this._cpu.step() * 3;  // How many ticks the PPU needs to do to 'catch up'.
 
-                for (let j = 0; j < ppuTicks; j++) {
-                    this._ppu.step();
-                    if (this._ppu.frameReady) {
-                        postMessage(this._ppu._frameBuffer.buffer, [this._ppu._frameBuffer.buffer]);
-                        this._ppu.frameReady = false;
+                    for (let j = 0; j < ppuTicks; j++) {
+                        this._ppu.step();
                     }
                 }
+                // if (this._ppu.frameReady) {
+                    // postMessage(this._ppu._frameBuffer.buffer, [this._ppu._frameBuffer.buffer]);
+                    this._ppu.frameReady = false;
+                // }
+                const end = performance.now();
+                // console.log(end - start);
+                setTimeout(run, 16 - end - start);
             }
+            run();
 
         } catch (e) {
             console.error(e);
         }
         // postMessage(cpuLog);
-        printTestOutput(this._memory);
+        // printTestOutput(this._memory);
 
-        // Pattern table numbers?
-        let line = '';
-        for (let i = 0; i < 32 * 30; i++) {
-            //line += memory._vram[i].toString(16) + ' ';
-            if (i % 32 === 0) {
-                console.log(line);
-                line = '';
-            }
-            line += this._ppu.read(0x2000 + i).toString(16) + ' ';
-        }
-        // console.log('finished :)');
-        console.log(cpuLog);
+        // // Pattern table numbers?
+        // let line = '';
+        // for (let i = 0; i < 32 * 30; i++) {
+        //     //line += memory._vram[i].toString(16) + ' ';
+        //     if (i % 32 === 0) {
+        //         console.log(line);
+        //         line = '';
+        //     }
+        //     line += this._ppu.read(0x2000 + i).toString(16) + ' ';
+        // }
+        // // console.log('finished :)');
+        // console.log(cpuLog);
     }
 
     // Reads from NES memory.
@@ -96,13 +105,35 @@ class NES {
         this._ppu.onDataWrite(data);
     }
 
+    onInputWrite(data) {
+        input.onWrite(data);
+    }
+
+    onInputRead() {
+        return input.onRead();
+    }
+
+    sendFrame(buffer) {
+        postMessage(buffer.buffer, [buffer.buffer]);
+    }
+
     // onStatusWrite(data) {
     //     this._ppu.onStatusWrite(data);
     // }
 }
 
-// Start the worker.
+const input = new StandardController();
+
 onmessage = function (msg) {
+    if (msg.data.hasOwnProperty('keydown')) {
+        input.keydown(msg.data.keydown);
+        // console.log(input.data.toString(2));
+        return;
+    } else if (msg.data.hasOwnProperty('keyup')) {
+        input.keyup(msg.data.keyup);
+        // console.log(input.data.toString(2));
+        return;
+    }
     const file = msg.data;
     const reader = new FileReader();
     reader.readAsArrayBuffer(file);

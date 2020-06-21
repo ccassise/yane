@@ -2,8 +2,6 @@
  *
  * Maps .nes file to NES memory.
  * 
- * @dependencies
- *      memory.js
  */
 'use strict';
 
