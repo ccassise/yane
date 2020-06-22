@@ -7,6 +7,11 @@
 
 class CPU {
     constructor(nes) {
+        CPU.INTERRUPT = {
+            IRQ: 'IRQ',
+            NMI: 'NMI',
+        };
+        
         this._nes = nes;
 
         this._interrupts = [];
@@ -28,6 +33,117 @@ class CPU {
         // TODO: Remove - only used for testing CPU with nestest.nes
         console.log('pc', this._programCounter.toString(16));
         // this._programCounter = 0xc000;
+
+        /// CPU status flags.
+        this._CARRY = 1 << 0;
+        this._ZERO = 1 << 1;
+        this._INTERRUPT_DISABLE = 1 << 2;
+        this._DECIMAL = 1 << 3;
+        this._BREAK = 1 << 4;
+        this._EXPANSION = 1 << 5;
+        this._OVERFLOW = 1 << 6;
+        this._NEGATIVE = 1 << 7;
+
+        this._STACK_BASE = 0x0100;
+
+        /// Number of bytes each instruction uses.
+        this._INSTRUCTION_LENGTH = [
+            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            3, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 0, 3, 0, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
+            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
+        ];
+
+        /// Number of cycles each instruction uses. Does not include page crosses.
+        this._INSTRUCTION_CYCLES = [
+            7, 6, 0, 0, 3, 3, 5, 0, 3, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            6, 6, 0, 0, 3, 3, 5, 0, 3, 2, 2, 0, 3, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 5, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            2, 6, 2, 0, 3, 3, 3, 0, 2, 2, 2, 0, 4, 4, 4, 0,
+            2, 6, 0, 0, 4, 4, 4, 0, 2, 5, 2, 0, 0, 5, 0, 0,
+            2, 6, 2, 0, 3, 3, 3, 0, 2, 2, 2, 0, 4, 4, 4, 0,
+            2, 5, 0, 0, 4, 4, 4, 0, 2, 4, 2, 0, 4, 4, 4, 0,
+            2, 6, 2, 0, 3, 3, 5, 0, 2, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+            2, 6, 2, 0, 3, 3, 5, 0, 2, 2, 2, 0, 4, 4, 6, 0,
+            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
+        ];
+
+        /// Instructions that are affected by page crosses and number of cycles a page cross adds.
+        this._PAGE_CROSS = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
+        ];
+
+        // TODO: Add unofficial NOP addressing modes to table.
+        this._ADDRESSING_MODES = [
+            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, null,       this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._abs,  this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._ind,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            null,       this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, null,       this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      this._zpgX, this._zpgX, this._zpgY, null,      this._impl, this._absY, this._impl, null, null,       this._absX, null,        null,
+            this._imme, this._indX, this._imme, null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      this._zpgX, this._zpgX, this._zpgY, null,      this._impl, this._absY, this._impl, null, this._absX, this._absX, this._absY,  null,
+            this._imme, this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+            this._imme, this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
+            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
+        ];
+
+        this._INSTRUCTIONS = [
+            this._brk, this._ora, this._nop, this._nop, this._nop, this._ora, this._aslm, this._nop, this._php, this._ora, this._asla, this._nop, this._nop, this._ora, this._aslm, this._nop,
+            this._bpl, this._ora, this._nop, this._nop, this._nop, this._ora, this._aslm, this._nop, this._clc, this._ora, this._nop,  this._nop, this._nop, this._ora, this._aslm, this._nop,
+            this._jsr, this._and, this._nop, this._nop, this._bit, this._and, this._rolm, this._nop, this._plp, this._and, this._rola, this._nop, this._bit, this._and, this._rolm, this._nop,
+            this._bmi, this._and, this._nop, this._nop, this._nop, this._and, this._rolm, this._nop, this._sec, this._and, this._nop,  this._nop, this._nop, this._and, this._rolm, this._nop,
+            this._rti, this._eor, this._nop, this._nop, this._nop, this._eor, this._lsrm, this._nop, this._pha, this._eor, this._lsra, this._nop, this._jmp, this._eor, this._lsrm, this._nop,
+            this._bvc, this._eor, this._nop, this._nop, this._nop, this._eor, this._lsrm, this._nop, this._cli, this._eor, this._nop,  this._nop, this._nop, this._eor, this._lsrm, this._nop,
+            this._rts, this._adc, this._nop, this._nop, this._nop, this._adc, this._rorm, this._nop, this._pla, this._adc, this._rora, this._nop, this._jmp, this._adc, this._rorm, this._nop,
+            this._bvs, this._adc, this._nop, this._nop, this._nop, this._adc, this._rorm, this._nop, this._sei, this._adc, this._nop,  this._nop, this._nop, this._adc, this._rorm, this._nop,
+            this._nop, this._sta, this._nop, this._nop, this._sty, this._sta, this._stx,  this._nop, this._dey, this._nop, this._txa,  this._nop, this._sty, this._sta, this._stx,  this._nop,
+            this._bcc, this._sta, this._nop, this._nop, this._sty, this._sta, this._stx,  this._nop, this._tya, this._sta, this._txs,  this._nop, this._nop, this._sta, this._nop,  this._nop,
+            this._ldy, this._lda, this._ldx, this._nop, this._ldy, this._lda, this._ldx,  this._nop, this._tay, this._lda, this._tax,  this._nop, this._ldy, this._lda, this._ldx,  this._nop,
+            this._bcs, this._lda, this._nop, this._nop, this._ldy, this._lda, this._ldx,  this._nop, this._clv, this._lda, this._tsx,  this._nop, this._ldy, this._lda, this._ldx,  this._nop,
+            this._cpy, this._cmp, this._nop, this._nop, this._cpy, this._cmp, this._dec,  this._nop, this._iny, this._cmp, this._dex,  this._nop, this._cpy, this._cmp, this._dec,  this._nop,
+            this._bne, this._cmp, this._nop, this._nop, this._nop, this._cmp, this._dec,  this._nop, this._cld, this._cmp, this._nop,  this._nop, this._nop, this._cmp, this._dec,  this._nop,
+            this._cpx, this._sbc, this._nop, this._nop, this._cpx, this._sbc, this._inc,  this._nop, this._inx, this._sbc, this._nop,  this._nop, this._cpx, this._sbc, this._inc,  this._nop,
+            this._beq, this._sbc, this._nop, this._nop, this._nop, this._sbc, this._inc,  this._nop, this._sed, this._sbc, this._nop,  this._nop, this._nop, this._sbc, this._inc,  this._nop,
+        ];
     }
 
     /// Step through a single instruction in the CPU. Returns number of cycles the instruction used.
@@ -47,21 +163,21 @@ class CPU {
             }
         })();
 
-        const len = CPU._INSTRUCTION_LENGTH[opcode];
+        const len = this._INSTRUCTION_LENGTH[opcode];
         if (len === 0) throw new Error(`Unsupported opcode: ${opcode.toString(16)} after ${this._totalCycles} cycles`);
 
-        const instruction = this._instructions[opcode];
+        const instruction = this._INSTRUCTIONS[opcode];
         instruction.call(this);
 
-        this._programCounter += CPU._INSTRUCTION_LENGTH[opcode];
-        this._cycles += CPU._INSTRUCTION_CYCLES[opcode];
+        this._programCounter += this._INSTRUCTION_LENGTH[opcode];
+        this._cycles += this._INSTRUCTION_CYCLES[opcode];
         this._totalCycles += this._cycles;
 
         return this._cycles;
     }
 
     toString() {
-        const len = CPU._INSTRUCTION_LENGTH[this._opcode()];
+        const len = this._INSTRUCTION_LENGTH[this._opcode()];
         if (len === 0) throw new Error(`Unsupported opcode: ${this._opcode().toString(16)} after ${this._totalCycles} cycles`);
         const instructions = new Array(len); // Opcode and bytes the instruction uses.
         for (let i = 0; i < len; i++) {
@@ -80,12 +196,12 @@ class CPU {
         const sp = this._stackPointer.toString(16).toUpperCase().padStart(2, 0);
 
         const addrMode = (() => {
-            if (this._addressing_modes[this._opcode()]) return this._addressing_modes[this._opcode()].name
+            if (this._ADDRESSING_MODES[this._opcode()]) return this._ADDRESSING_MODES[this._opcode()].name
             else return 'null';
         })();
 
         return (
-            `${this._instructions[this._opcode()].name} ` +
+            `${this._INSTRUCTIONS[this._opcode()].name} ` +
             `${addrMode.padEnd(5, ' ')} ` +
             `${pc}  ` +
             `${instruction} ` +
@@ -102,89 +218,6 @@ class CPU {
         this._interrupts.push(interrupt);
     }
 
-    static get INTERRUPT() {
-        return {
-            IRQ: 'IRQ',
-            NMI: 'NMI',
-        };
-    }
-
-    /// CPU status flags.
-    static get _CARRY() { return 1 << 0; }
-    static get _ZERO() { return 1 << 1; }
-    static get _INTERRUPT_DISABLE() { return 1 << 2; }
-    static get _DECIMAL() { return 1 << 3; }
-    static get _BREAK() { return 1 << 4; }
-    static get _EXPANSION() { return 1 << 5; }
-    static get _OVERFLOW() { return 1 << 6; }
-    static get _NEGATIVE() { return 1 << 7; }
-
-    /// Number of bytes each instruction uses.
-    static get _INSTRUCTION_LENGTH() {
-        return [
-            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-            3, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-            1, 2, 0, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 0, 3, 0, 0,
-            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-            2, 2, 2, 0, 2, 2, 2, 0, 1, 2, 1, 0, 3, 3, 3, 0,
-            2, 2, 0, 0, 2, 2, 2, 0, 1, 3, 1, 0, 3, 3, 3, 0,
-        ];
-    }
-
-    /// Number of cycles each instruction uses. Does not include page crosses.
-    static get _INSTRUCTION_CYCLES() {
-        return [
-            7, 6, 0, 0, 3, 3, 5, 0, 3, 2, 2, 0, 4, 4, 6, 0,
-            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
-            6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 4, 4, 6, 0,
-            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
-            6, 6, 0, 0, 3, 3, 5, 0, 3, 2, 2, 0, 3, 4, 6, 0,
-            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
-            6, 6, 0, 0, 3, 3, 5, 0, 4, 2, 2, 0, 5, 4, 6, 0,
-            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
-            2, 6, 2, 0, 3, 3, 3, 0, 2, 2, 2, 0, 4, 4, 4, 0,
-            2, 6, 0, 0, 4, 4, 4, 0, 2, 5, 2, 0, 0, 5, 0, 0,
-            2, 6, 2, 0, 3, 3, 3, 0, 2, 2, 2, 0, 4, 4, 4, 0,
-            2, 5, 0, 0, 4, 4, 4, 0, 2, 4, 2, 0, 4, 4, 4, 0,
-            2, 6, 2, 0, 3, 3, 5, 0, 2, 2, 2, 0, 4, 4, 6, 0,
-            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
-            2, 6, 2, 0, 3, 3, 5, 0, 2, 2, 2, 0, 4, 4, 6, 0,
-            2, 5, 0, 0, 4, 4, 6, 0, 2, 4, 2, 0, 4, 4, 7, 0,
-        ];
-    }
-
-    /// Instructions that are affected by page crosses and number of cycles a page cross adds.
-    static get _PAGE_CROSS() {
-        return [
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
-            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-            1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0,
-        ];
-    }
-
     set _accumulator(v) { this._A = uint8(v); }
     set _xIndex(v) { this._X = uint8(v); }
     set _yIndex(v) { this._Y = uint8(v); }
@@ -198,49 +231,6 @@ class CPU {
     get _status() { return this._P; }
     get _stackPointer() { return this._SP; }
     get _programCounter() { return this._PC; }
-
-    // TODO: Add unofficial NOP addressing modes to table.
-    get _addressing_modes() {
-        return [
-            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, null,       this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
-            this._abs,  this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
-            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._abs,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
-            this._impl, this._indX, null,       null,      null,       this._zpg,  this._zpg,  null,      this._impl, this._imme, null, /*A*/ null, this._ind,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
-            null,       this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, null,       this._impl, null, this._abs,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      this._zpgX, this._zpgX, this._zpgY, null,      this._impl, this._absY, this._impl, null, null,       this._absX, null,        null,
-            this._imme, this._indX, this._imme, null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      this._zpgX, this._zpgX, this._zpgY, null,      this._impl, this._absY, this._impl, null, this._absX, this._absX, this._absY,  null,
-            this._imme, this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
-            this._imme, this._indX, null,       null,      this._zpg,  this._zpg,  this._zpg,  null,      this._impl, this._imme, this._impl, null, this._abs,  this._abs,  this._abs,   null,
-            this._rel,  this._indY, null,       null,      null,       this._zpgX, this._zpgX, null,      this._impl, this._absY, null,       null, null,       this._absX, this._absX,  null,
-        ];
-    }
-
-    get _instructions() {
-        return [
-            this._brk, this._ora, this._nop, this._nop, this._nop, this._ora, this._aslm, this._nop, this._php, this._ora, this._asla, this._nop, this._nop, this._ora, this._aslm, this._nop,
-            this._bpl, this._ora, this._nop, this._nop, this._nop, this._ora, this._aslm, this._nop, this._clc, this._ora, this._nop,  this._nop, this._nop, this._ora, this._aslm, this._nop,
-            this._jsr, this._and, this._nop, this._nop, this._bit, this._and, this._rolm, this._nop, this._plp, this._and, this._rola, this._nop, this._bit, this._and, this._rolm, this._nop,
-            this._bmi, this._and, this._nop, this._nop, this._nop, this._and, this._rolm, this._nop, this._sec, this._and, this._nop,  this._nop, this._nop, this._and, this._rolm, this._nop,
-            this._rti, this._eor, this._nop, this._nop, this._nop, this._eor, this._lsrm, this._nop, this._pha, this._eor, this._lsra, this._nop, this._jmp, this._eor, this._lsrm, this._nop,
-            this._bvc, this._eor, this._nop, this._nop, this._nop, this._eor, this._lsrm, this._nop, this._cli, this._eor, this._nop,  this._nop, this._nop, this._eor, this._lsrm, this._nop,
-            this._rts, this._adc, this._nop, this._nop, this._nop, this._adc, this._rorm, this._nop, this._pla, this._adc, this._rora, this._nop, this._jmp, this._adc, this._rorm, this._nop,
-            this._bvs, this._adc, this._nop, this._nop, this._nop, this._adc, this._rorm, this._nop, this._sei, this._adc, this._nop,  this._nop, this._nop, this._adc, this._rorm, this._nop,
-            this._nop, this._sta, this._nop, this._nop, this._sty, this._sta, this._stx,  this._nop, this._dey, this._nop, this._txa,  this._nop, this._sty, this._sta, this._stx,  this._nop,
-            this._bcc, this._sta, this._nop, this._nop, this._sty, this._sta, this._stx,  this._nop, this._tya, this._sta, this._txs,  this._nop, this._nop, this._sta, this._nop,  this._nop,
-            this._ldy, this._lda, this._ldx, this._nop, this._ldy, this._lda, this._ldx,  this._nop, this._tay, this._lda, this._tax,  this._nop, this._ldy, this._lda, this._ldx,  this._nop,
-            this._bcs, this._lda, this._nop, this._nop, this._ldy, this._lda, this._ldx,  this._nop, this._clv, this._lda, this._tsx,  this._nop, this._ldy, this._lda, this._ldx,  this._nop,
-            this._cpy, this._cmp, this._nop, this._nop, this._cpy, this._cmp, this._dec,  this._nop, this._iny, this._cmp, this._dex,  this._nop, this._cpy, this._cmp, this._dec,  this._nop,
-            this._bne, this._cmp, this._nop, this._nop, this._nop, this._cmp, this._dec,  this._nop, this._cld, this._cmp, this._nop,  this._nop, this._nop, this._cmp, this._dec,  this._nop,
-            this._cpx, this._sbc, this._nop, this._nop, this._cpx, this._sbc, this._inc,  this._nop, this._inx, this._sbc, this._nop,  this._nop, this._cpx, this._sbc, this._inc,  this._nop,
-            this._beq, this._sbc, this._nop, this._nop, this._nop, this._sbc, this._inc,  this._nop, this._sed, this._sbc, this._nop,  this._nop, this._nop, this._sbc, this._inc,  this._nop,
-        ];
-    }
 
     /// Gets current opcode from memory.
     _opcode() {
@@ -264,7 +254,7 @@ class CPU {
         const initialAddress = this._abs();
         const result = initialAddress + this._xIndex;
 
-        if (this._isPageCross(initialAddress, result)) this._cycles += CPU._PAGE_CROSS[this._opcode()];
+        if (this._isPageCross(initialAddress, result)) this._cycles += this._PAGE_CROSS[this._opcode()];
 
         return uint16(result);
     }
@@ -274,7 +264,7 @@ class CPU {
         const initialAddress = this._abs();
         const result = initialAddress + this._yIndex;
 
-        if (this._isPageCross(initialAddress, result)) this._cycles += CPU._PAGE_CROSS[this._opcode()];
+        if (this._isPageCross(initialAddress, result)) this._cycles += this._PAGE_CROSS[this._opcode()];
 
         return uint16(result);
         // return uint16(this._abs() + this._yIndex);
@@ -325,7 +315,7 @@ class CPU {
 
         const result = uint16((addressHigh | addressLow) + this._yIndex);
 
-        if (this._isPageCross(addressHigh | addressLow, result)) this._cycles += CPU._PAGE_CROSS[this._opcode()];
+        if (this._isPageCross(addressHigh | addressLow, result)) this._cycles += this._PAGE_CROSS[this._opcode()];
 
         return result;
     }
@@ -352,7 +342,7 @@ class CPU {
 
     _memoryAddress() {
         const opcode = this._opcode();
-        const addressingFn = this._addressing_modes[opcode];
+        const addressingFn = this._ADDRESSING_MODES[opcode];
         if (addressingFn === null) {
             console.error('Unsuported opcode', opcode);
         } else {
@@ -370,16 +360,15 @@ class CPU {
     /*****************************************************************************
      * Stack Functions
      *****************************************************************************/
-    static get _STACK_BASE() { return 0x0100; }
 
     _stackPush(x) {
-        this._nes.write(CPU._STACK_BASE | this._stackPointer, x);
+        this._nes.write(this._STACK_BASE | this._stackPointer, x);
         this._stackPointer--;
     }
 
     _stackPop() {
         this._stackPointer++;
-        return this._nes.read(CPU._STACK_BASE | this._stackPointer);
+        return this._nes.read(this._STACK_BASE | this._stackPointer);
     }
 
     /*****************************************************************************
@@ -388,25 +377,25 @@ class CPU {
 
     /// Sets carry flag if bit 8 in x is set, otherwise resets it.
     _setOrResetCarry(x) {
-        this._status = setOrReset(this._status, uint16(x >> 8), CPU._CARRY);
+        this._status = setOrReset(this._status, uint16(x >> 8), this._CARRY);
     }
 
     /// Sets negative flag if bit 7 of x is set, otherwise resets it.
     _setOrResetNegative(x) {
-        this._status = setOrReset(this._status, uint8(x), CPU._NEGATIVE);
+        this._status = setOrReset(this._status, uint8(x), this._NEGATIVE);
     }
 
     /// Sets overflow if bit 7 in arguments are different, otherwise resets it.
     _setOrResetOverflow(a, b, result) {
         // Determines if overflow occurred and moves the bit to the overflow flag position.
         const overflow = uint8(((a ^ result) & (b ^ result) & 0x80) >> 1);
-        this._status = setOrReset(this._status, overflow, CPU._OVERFLOW);
+        this._status = setOrReset(this._status, overflow, this._OVERFLOW);
     }
 
     /// Sets zero flag if x is 0, otherwise resets it.
     _setOrResetZero(x) {
-        const zero = x === 0 ? CPU._ZERO : 0;
-        this._status = setOrReset(this._status, zero, CPU._ZERO);
+        const zero = x === 0 ? this._ZERO : 0;
+        this._status = setOrReset(this._status, zero, this._ZERO);
     }
 
     /// LDA - Load Accumulator with Memory
@@ -424,7 +413,7 @@ class CPU {
 
     /// ADC - Add Memory to Accumulator with Carry
     _adc() {
-        const carry = this._status & CPU._CARRY;
+        const carry = this._status & this._CARRY;
         const m = this._memoryValue();
 
         const resultWithCarry = uint16(this._accumulator + m + carry);
@@ -440,7 +429,7 @@ class CPU {
 
     /// SBC - Subtract Memory from Accumulator with Borrow
     _sbc() {
-        const carry = this._status & CPU._CARRY;
+        const carry = this._status & this._CARRY;
         const m = uint8(~this._memoryValue() + carry);
 
         const resultWithCarry = uint16(this._accumulator + m);
@@ -477,42 +466,42 @@ class CPU {
 
     /// SEC - Set Carry Flag
     _sec() {
-        this._status |= CPU._CARRY;
+        this._status |= this._CARRY;
     }
 
     /// CLC - Clear Carry Flag
     _clc() {
-        this._status &= ~CPU._CARRY;
+        this._status &= ~this._CARRY;
     }
 
     /// SEI - Set Interrupt Disable
     _sei() {
-        this._status |= CPU._INTERRUPT_DISABLE;
+        this._status |= this._INTERRUPT_DISABLE;
     }
 
     /// CLI - Clear Interrupt Disable
     _cli() {
-        this._status &= ~CPU._INTERRUPT_DISABLE;
+        this._status &= ~this._INTERRUPT_DISABLE;
     }
 
     /// SED - Set Decimal Mode
     _sed() {
-        this._status |= CPU._DECIMAL;
+        this._status |= this._DECIMAL;
     }
 
     /// CLD - Clear Decimal Mode
     _cld() {
-        this._status &= ~CPU._DECIMAL;
+        this._status &= ~this._DECIMAL;
     }
 
     /// CLV - Clear Overflow Flag
     _clv() {
-        this._status &= ~CPU._OVERFLOW;
+        this._status &= ~this._OVERFLOW;
     }
 
     /// RTI - Return from Interrupt
     _rti() {
-        this._status = (this._stackPop() & 0xef) | CPU._EXPANSION;
+        this._status = (this._stackPop() & 0xef) | this._EXPANSION;
         // this._status = this._stackPop();
         const pcl = uint16(this._stackPop());
         const pch = uint16(this._stackPop() << 8);
@@ -533,7 +522,7 @@ class CPU {
         this._stackPush(pch);
         this._stackPush(pcl);
         this._stackPush(this._status | 0x30);
-        // this._stackPush(this._status & ~CPU._BREAK);
+        // this._stackPush(this._status & ~this._BREAK);
         this._sei();
         const addressHigh = this._nes.read(0xfffb) << 8;
         const addressLow = this._nes.read(0xfffa);
@@ -560,7 +549,7 @@ class CPU {
     /// added with another uint16 and produce the correct results.
     _getOffset() {
         const x = this._memoryValue();
-        const result = uint16(x & CPU._NEGATIVE ? x | 0xff00 : x);
+        const result = uint16(x & this._NEGATIVE ? x | 0xff00 : x);
         return result;
     }
 
@@ -579,49 +568,49 @@ class CPU {
         const offset = this._getOffset();
         const newPC = this._programCounter + offset;
         if (this._isBranchPageCross(this._programCounter, newPC)) {
-            this._cycles += CPU._PAGE_CROSS[this._opcode()];
+            this._cycles += this._PAGE_CROSS[this._opcode()];
         }
         this._programCounter = newPC;
     }
 
     /// BMI - Branch on Result Minus
     _bmi() {
-        if (this._status & CPU._NEGATIVE) this._branchTaken();
+        if (this._status & this._NEGATIVE) this._branchTaken();
     }
 
     /// BPL - Branch on Result Plus
     _bpl() {
-        if (!(this._status & CPU._NEGATIVE)) this._branchTaken();
+        if (!(this._status & this._NEGATIVE)) this._branchTaken();
     }
 
     /// BCC - Branch on Carry Clear
     _bcc() {
-        if (!(this._status & CPU._CARRY)) this._branchTaken();
+        if (!(this._status & this._CARRY)) this._branchTaken();
     }
 
     /// BCS - Branch on Carry Set
     _bcs() {
-        if (this._status & CPU._CARRY) this._branchTaken();
+        if (this._status & this._CARRY) this._branchTaken();
     }
 
     /// BEQ - Branch on Result Zero
     _beq() {
-        if (this._status & CPU._ZERO) this._branchTaken();
+        if (this._status & this._ZERO) this._branchTaken();
     }
 
     /// BNE - Branch on Result Not Zero
     _bne() {
-        if (!(this._status & CPU._ZERO)) this._branchTaken();
+        if (!(this._status & this._ZERO)) this._branchTaken();
     }
 
     /// BVS - Branch on Overflow Set
     _bvs() {
-        if (this._status & CPU._OVERFLOW) this._branchTaken();
+        if (this._status & this._OVERFLOW) this._branchTaken();
     }
 
     /// BVC - Branch on Overflow Clear
     _bvc() {
-        if (!(this._status & CPU._OVERFLOW)) this._branchTaken();
+        if (!(this._status & this._OVERFLOW)) this._branchTaken();
     }
 
     /// CMP - Compare Memory and Accumulator
@@ -639,8 +628,8 @@ class CPU {
         const value = this._memoryValue();
         const result = this._accumulator & value;
 
-        this._status = setOrReset(this._status, value, CPU._OVERFLOW);
-        this._status = setOrReset(this._status, value, CPU._NEGATIVE);
+        this._status = setOrReset(this._status, value, this._OVERFLOW);
+        this._status = setOrReset(this._status, value, this._NEGATIVE);
         this._setOrResetZero(result);
     }
 
@@ -793,7 +782,7 @@ class CPU {
 
     /// PLP - Pull Processor Status from Stack
     _plp() {
-        this._status = (this._stackPop() & 0xef) | CPU._EXPANSION;
+        this._status = (this._stackPop() & 0xef) | this._EXPANSION;
     }
 
     /// LSR - Logical Shift Right
@@ -801,7 +790,7 @@ class CPU {
         const result = value >> 1;
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
-        this._status = setOrReset(this._status, value, CPU._CARRY);
+        this._status = setOrReset(this._status, value, this._CARRY);
         return result;
     }
 
@@ -821,7 +810,7 @@ class CPU {
         const result = uint8(value << 1);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
-        this._status = setOrReset(this._status, value >> 7, CPU._CARRY);
+        this._status = setOrReset(this._status, value >> 7, this._CARRY);
         return result;
     }
 
@@ -838,10 +827,10 @@ class CPU {
 
     /// ROL - Rotate Left
     _rol(value) {
-        const result = setOrReset(value << 1, this._status, CPU._CARRY);
+        const result = setOrReset(value << 1, this._status, this._CARRY);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
-        this._status = setOrReset(this._status, value >> 7, CPU._CARRY);
+        this._status = setOrReset(this._status, value >> 7, this._CARRY);
         return result;
     }
 
@@ -861,7 +850,7 @@ class CPU {
         const result = setOrReset(value >> 1, this._status << 7, 1 << 7);
         this._setOrResetNegative(result);
         this._setOrResetZero(result);
-        this._status = setOrReset(this._status, value, CPU._CARRY);
+        this._status = setOrReset(this._status, value, this._CARRY);
         return result;
     }
 

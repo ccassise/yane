@@ -47,7 +47,7 @@ class NES {
                 // }
                 const end = performance.now();
                 // console.log(end - start);
-                setTimeout(run, 16 - end - start);
+                setTimeout(run, 16 - (end - start));
             }
             run();
 

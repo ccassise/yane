@@ -122,15 +122,18 @@ function drawPatternTable(pattern, scale) {
 
 function drawFrame(pattern, scale) {
     const patternTable = document.getElementById('test-canvas');
-    patternTable.width = 256 * scale;
-    patternTable.height = 240 * scale;
+    // patternTable.width = 256 * scale;
+    // patternTable.height = 240 * scale;
+    patternTable.width = 256;
+    patternTable.height = 240;
     const patternCtx = patternTable.getContext('2d', { alpha: false });
     // TOOD: this should only change when scale is changed. drawFrame should only scale the image then put image to canvas, nothing else.
-    const result = new ImageData(256 * scale, 240 * scale);
+    // const result = new ImageData(256 * scale, 240 * scale);
 
-    nearestNeighborInterp(new ImageData(pattern, 256), result);
+    // nearestNeighborInterp(new ImageData(pattern, 256), result);
     // patternCtx.clearRect(0, 0, patternTable.width, patternTable.height);
-    patternCtx.putImageData(result, 0, 0);
+    // patternCtx.putImageData(result, 0, 0);
+    patternCtx.putImageData(new ImageData(pattern, 256), 0, 0);
 }
 
 function keyCodeToNesKey(key) {
