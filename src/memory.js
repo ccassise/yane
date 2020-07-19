@@ -1,11 +1,6 @@
-/* memory.js
- * 
- * Handles the NES reading and writing from/to memory locations.
- * 
- */
-'use strict';
+import { uint8, uint16 } from './utils.js';
 
-class Memory {
+export class Memory {
     constructor(nes) {
         this._nes = nes;
         this._memory = new Uint8Array(1024 * 64);
@@ -35,11 +30,13 @@ class Memory {
             case 0x2007:
                 return this._nes.onDataRead(data);
                 break;
-            case 0x4016:
+            case 0x4016: {
                 const result = this._nes.onInputRead();
                 this._memory[0x4016] = result | (data & ~0x01);
                 return result;
-            default: break;
+            }
+            default: 
+                break;
         }
         return data;
     }
@@ -72,6 +69,7 @@ class Memory {
                 break;
             case 0x4016:
                 this._nes.onInputWrite(data);
+                break;
             default: break;
         }
     }

@@ -1,16 +1,12 @@
-/* standard-controller.js
- * 
- * Standard NES controller.
- * 
- */
-'use strict'
+import { uint8 } from './utils.js';
 
-class StandardController {
+export class StandardController {
     constructor() {
-        this._data = 0x00;  // Current buttons that are pressed.
+        this._dataStream = 0x00;  // Current buttons that are pressed.
         this._register = 0x00;  // Data that will be sent.
+
         // When true the register will continuously be updated with controller data.
-        this._isUpdateRegister = false;
+        this._shouldUpdate = false;
 
         this.KEYS = {
             A: 1 << 0,
@@ -24,20 +20,20 @@ class StandardController {
         };
     }
 
-    get _data() { return this.__data; }
-    set _data(v) { this.__data = uint8(v); }
+    get _dataStream() { return this.__dataStream; }
+    set _dataStream(newData) { this.__dataStream = uint8(newData); }
 
     // 8 bit shift register.
     get _register() { return this.__register; }
-    set _register(v) { this.__register = uint8(v); }
+    set _register(newRegister) { this.__register = uint8(newRegister); }
 
     keydown(key) {
-        this._data |= this.KEYS[key];
+        this._dataStream |= this.KEYS[key];
         this._updateRegister();
     }
 
     keyup(key) {
-        this._data &= ~this.KEYS[key];
+        this._dataStream &= ~this.KEYS[key];
         this._updateRegister();
     }
 
@@ -50,16 +46,16 @@ class StandardController {
 
     onWrite(data) {
         if (data & 0x01) {
-            this._isUpdateRegister = true;
-            this._register = this._data;
+            this._shouldUpdate = true;
+            this._register = this._dataStream;
         } else {
-            this._isUpdateRegister = false;
+            this._shouldUpdate = false;
         }
     }
 
     _updateRegister() {
-        if (this._isUpdateRegister) {
-            this._register = this._data;
+        if (this._shouldUpdate) {
+            this._register = this._dataStream;
         }
     }
 }

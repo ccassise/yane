@@ -1,16 +1,13 @@
-/* ppu.js
- * 
- * Picture Processing Unit.
- * 
- */
-'use strict'
+import { uint8, uint16 } from './utils.js';
+import { Interrupt } from './interrupt.js';
 
-class PPU {
+export class PPU {
     constructor(nes) {
         this._nes = nes;
         this._vram = new Uint8Array(1024 * 16);
 
-        this.frameReady = false;
+        // Screen height and width and room for indiviudal RGBA.
+        this._frameBuffer = new Uint8ClampedArray(256 * 240 * 4);
 
         this._scanLine = 0;
         this._cycle = 0;
@@ -22,22 +19,25 @@ class PPU {
 
         this._nmiOccurred = false;
         this._nmiOutput = false;
+
+        // NES color palette in RGBA groups.
+        this._PALETTE = [
+            124, 124, 124, 255, 0, 0, 252, 255, 0, 0, 188, 255, 68, 40, 188, 255, 148, 0, 132, 255, 168, 0, 32, 255, 168, 16, 0, 255, 136, 20, 0, 255, 80, 48, 0, 255, 0, 120, 0, 255, 0, 104, 0, 255, 0, 88, 0, 255, 0, 64, 88, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
+            188, 188, 188, 255, 0, 120, 248, 255, 0, 88, 248, 255, 104, 68, 252, 255, 216, 0, 204, 255, 228, 0, 88, 255, 228, 56, 0, 255, 228, 92, 16, 255, 172, 124, 0, 255, 0, 184, 0, 255, 0, 168, 0, 255, 0, 168, 68, 255, 0, 136, 136, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
+            248, 248, 248, 255, 60, 188, 252, 255, 104, 136, 252, 255, 152, 120, 248, 255, 248, 120, 248, 255, 248, 88, 152, 255, 248, 120, 88, 255, 252, 160, 68, 255, 248, 184, 0, 255, 184, 248, 24, 255, 88, 216, 84, 255, 88, 248, 152, 255, 0, 232, 216, 255, 120, 120, 120, 255, 0, 0, 0, 255, 0, 0, 0, 255,
+            252, 252, 252, 255, 164, 228, 252, 255, 184, 184, 248, 255, 216, 184, 248, 255, 248, 184, 248, 255, 248, 164, 192, 255, 240, 208, 176, 255, 252, 224, 168, 255, 248, 216, 120, 255, 216, 248, 120, 255, 184, 248, 184, 255, 184, 248, 216, 255, 0, 252, 252, 255, 216, 216, 216, 255, 0, 0, 0, 255, 0, 0, 0, 255
+        ];
     }
 
     step() {
         if (this._nmiOccurred && this._nmiOutput) {
             this._nmiOutput = false;
-            this._nes.interrupt(CPU.INTERRUPT.NMI);
+            this._nes.interrupt(Interrupt.NMI);
         }
-
-        // if (this._cycle === 0 && this._scanLine === 0) {
-        //     this.renderFrame();
-        // }
         
         if (this._scanLine === 240 && this._cycle === 0) {
             this.renderFrame();
-            this._nes.sendFrame(this._frameBuffer);
-            // this.frameReady = true;
+            this._nes.draw(this._frameBuffer);
         }
 
         // Set vblank
@@ -62,7 +62,6 @@ class PPU {
             this._cycle = 0;
             if (this._scanLine >= 261) {
                 this._scanLine = 0;
-                this.frameReady = true;
 
             } else {
                 this._scanLine++;
@@ -71,12 +70,10 @@ class PPU {
     }
 
     renderFrame() {
-        // Screen height and width and room for indiviudal RGBA.
-        this._frameBuffer = new Uint8ClampedArray(256 * 240 * 4);
         const tile = new Uint8Array(8);
 
         for (let i = 0; i < 32 * 30; i++) {
-            const tileStart = this._backgroundPatternTable | (this.read(0x2000 + i) << 4);
+            const tileStart = this._backgroundPatternTable() | (this.read(0x2000 + i) << 4);
             for (let j = 0; j < 8; j++) {
                 tile[j] = this.read(tileStart + j) | this.read(tileStart + j + 8);
             }
@@ -147,14 +144,14 @@ class PPU {
     }
 
     // TODO: Should return old status of bit 7 THEN clear.
-    /// data should be value at address 0x2002.
+    // data should be value at address 0x2002.
     onStatusRead(data) {
         this._nes.write(0x2002, data & 0xef);  // Clear bit 7 on read.
         this._vramAddr = 0;
         this._nmiOccurred = false;
     }
 
-    /// data should be value at address 0x2006.
+    // data should be value at address 0x2006.
     onAddressWrite(data) {
         if (!this._writeToggle) {
             this._vramAddr = (this._vramAddr & 0x00ff) | (data << 8);
@@ -164,7 +161,7 @@ class PPU {
         this._writeToggle = !this._writeToggle;
     }
 
-    /// data should be value at address 0x2007.
+    // data should be value at address 0x2007.
     onDataRead(data) {
         this._vramAddr += (this._control & (1 << 2) ? 32 : 1);
         const result = this._dataBuffer;
@@ -172,46 +169,46 @@ class PPU {
         return result;
     }
 
-    /// data should be value at address 0x2007.
+    // data should be value at address 0x2007.
     onDataWrite(data) {
         this._dataBuffer = data;
         this.write(this._vramAddr, this._dataBuffer);
         this._vramAddr += (this._control & (1 << 2) ? 32 : 1);
     }
 
-    /// Read from VRAM.
+    // Read from VRAM.
     read(address) {
         // return this._vram[uint16(address) % 0x4000];
         return this._vram[uint16(address)];
     }
 
-    /// Write to VRAM.
+    // Write to VRAM.
     write(address, data) {
         // this._vram[uint16(address) % 0x4000] = data;
         this._vram[uint16(address)] = data;
     }
 
-    /// PPU registers.
-    get _vramAddr() { return this._addr & 0xefff; }
-    get _vramTmpAddr() { return this._tmpAddr & 0xefff; }
-    get _fineXScroll() { return this._fineX & 0x07; }
-    get _dataBuffer() { return uint8(this._readBuf); }
-    get _patternTableShiftRegister1() { return this._shift16reg1; }
-    get _patternTableShiftRegister2() { return this._shift16reg2; }
-    get _paletteAttributeShiftRegister1() { return this._shift8reg1; }
-    get _paletteAttributeShiftRegister2() { return this._shift8reg2; }
+    // PPU registers.
+    get _vramAddr() { return this.__addr & 0xefff; }
+    get _vramTmpAddr() { return this.__tmpAddr & 0xefff; }
+    get _fineXScroll() { return this.__fineX & 0x07; }
+    get _dataBuffer() { return uint8(this.__readBuf); }
+    get _patternTableShiftRegister1() { return this.__shift16reg1; }
+    get _patternTableShiftRegister2() { return this.__shift16reg2; }
+    get _paletteAttributeShiftRegister1() { return this.__shift8reg1; }
+    get _paletteAttributeShiftRegister2() { return this.__shift8reg2; }
 
-    set _vramAddr(x) { this._addr = x & 0xefff; }
-    set _vramTmpAddr(x) { this._tmpAddr = x & 0xefff; }
-    set _fineXScroll(x) { this._fineX = x & 0x07; }
-    set _dataBuffer(x) { this._readBuf = uint8(x); }
-    set _patternTableShiftRegister1(x) { this._shift16reg1 = uint16(x); }
-    set _patternTableShiftRegister2(x) { this._shift16reg2 = uint16(x); }
-    set _paletteAttributeShiftRegister1(x) { this._shift8reg1 = uint8(x); }
-    set _paletteAttributeShiftRegister2(x) { this._shift8reg2 = uint8(x); }
+    set _vramAddr(x) { this.__addr = x & 0xefff; }
+    set _vramTmpAddr(x) { this.__tmpAddr = x & 0xefff; }
+    set _fineXScroll(x) { this.__fineX = x & 0x07; }
+    set _dataBuffer(x) { this.__readBuf = uint8(x); }
+    set _patternTableShiftRegister1(x) { this.__shift16reg1 = uint16(x); }
+    set _patternTableShiftRegister2(x) { this.__shift16reg2 = uint16(x); }
+    set _paletteAttributeShiftRegister1(x) { this.__shift8reg1 = uint8(x); }
+    set _paletteAttributeShiftRegister2(x) { this.__shift8reg2 = uint8(x); }
 
 
-    /// Memory mapped registers that can be used with CPU.
+    // Memory mapped registers that can be used with CPU.
     //
     get _control() { return this._nes.read(0x2000); }
     get _mask() { return this._nes.read(0x2001); }
@@ -223,18 +220,17 @@ class PPU {
     get _data() { return this._nes.read(0x2007); }
     get _oamDma() { return this._nes.read(0x4014); }
 
-    set _control(x) { this._nes.write(0x2000, x); }
-    set _mask(x) { this._nes.write(0x2001, x); }
-    set _status(x) { this._nes.write(0x2002, x); }
-    set _oamAddr(x) { this._nes.write(0x2003, x); }
-    set _oamData(x) { this._nes.write(0x2004, x); }
-    set _scroll(x) { this._nes.write(0x2005, x); }
-    set _address(x) { this._nes.write(0x2006, x); }
-    set _data(x) { this._nes.write(0x2007, x); }
-    set _oamDma(x) { this._nes.write(0x4014, x); }
+    set _control(data) { this._nes.write(0x2000, data); }
+    set _mask(data) { this._nes.write(0x2001, data); }
+    set _status(data) { this._nes.write(0x2002, data); }
+    set _oamAddr(data) { this._nes.write(0x2003, data); }
+    set _oamData(data) { this._nes.write(0x2004, data); }
+    set _scroll(data) { this._nes.write(0x2005, data); }
+    set _address(data) { this._nes.write(0x2006, data); }
+    set _data(data) { this._nes.write(0x2007, data); }
+    set _oamDma(data) { this._nes.write(0x4014, data); }
 
-    // TODO: Maybe convert this to a static or something.
-    get _baseNametable() {
+    _baseNametable() {
         switch (this._control & 0x03) {
             case 0x00:
                 return 0x2000;
@@ -244,14 +240,16 @@ class PPU {
                 return 0x2800;
             case 0x03:
                 return 0x2c00;
+            default:
+                throw new Error('Unreachable');
         }
     }
 
-    get _backgroundPatternTable() {
+    _backgroundPatternTable() {
         return (this._control & 0x10) << 8;
     }
 
-    /// NES color palette in RGBA groups.
+    // NES color palette in RGBA groups.
     /*
     const palette = ([
         [124, 124, 124, 255], [0, 0, 252, 255],     [0, 0, 188, 255],     [68, 40, 188, 255],   [148, 0, 132, 255],   [168, 0, 32, 255],    [168, 16, 0, 255],    [136, 20, 0, 255],    [80, 48, 0, 255],     [0, 120, 0, 255],     [0, 104, 0, 255],     [0, 88, 0, 255],      [0, 64, 88, 255],   [0, 0, 0, 255],       [0, 0, 0, 255], [0, 0, 0, 255],
@@ -260,18 +258,5 @@ class PPU {
         [252, 252, 252, 255], [164, 228, 252, 255], [184, 184, 248, 255], [216, 184, 248, 255], [248, 184, 248, 255], [248, 164, 192, 255], [240, 208, 176, 255], [252, 224, 168, 255], [248, 216, 120, 255], [216, 248, 120, 255], [184, 248, 184, 255], [184, 248, 216, 255], [0, 252, 252, 255], [216, 216, 216, 255], [0, 0, 0, 255], [0, 0, 0, 255],
     ]);
     */
-
-
-    /// NES color palette in RGBA groups.
-    static get palette() {
-        return Uint8ClampedArray.from([
-            124, 124, 124, 255, 0, 0, 252, 255, 0, 0, 188, 255, 68, 40, 188, 255, 148, 0, 132, 255, 168, 0, 32, 255, 168, 16, 0, 255, 136, 20, 0, 255, 80, 48, 0, 255, 0, 120, 0, 255, 0, 104, 0, 255, 0, 88, 0, 255, 0, 64, 88, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
-            188, 188, 188, 255, 0, 120, 248, 255, 0, 88, 248, 255, 104, 68, 252, 255, 216, 0, 204, 255, 228, 0, 88, 255, 228, 56, 0, 255, 228, 92, 16, 255, 172, 124, 0, 255, 0, 184, 0, 255, 0, 168, 0, 255, 0, 168, 68, 255, 0, 136, 136, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
-            248, 248, 248, 255, 60, 188, 252, 255, 104, 136, 252, 255, 152, 120, 248, 255, 248, 120, 248, 255, 248, 88, 152, 255, 248, 120, 88, 255, 252, 160, 68, 255, 248, 184, 0, 255, 184, 248, 24, 255, 88, 216, 84, 255, 88, 248, 152, 255, 0, 232, 216, 255, 120, 120, 120, 255, 0, 0, 0, 255, 0, 0, 0, 255,
-            252, 252, 252, 255, 164, 228, 252, 255, 184, 184, 248, 255, 216, 184, 248, 255, 248, 184, 248, 255, 248, 164, 192, 255, 240, 208, 176, 255, 252, 224, 168, 255, 248, 216, 120, 255, 216, 248, 120, 255, 184, 248, 184, 255, 184, 248, 216, 255, 0, 252, 252, 255, 216, 216, 216, 255, 0, 0, 0, 255, 0, 0, 0, 255
-        ]);
-    }
-
-
 }
 

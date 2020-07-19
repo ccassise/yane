@@ -1,25 +1,20 @@
-/* mapper.js
- *
- * Maps .nes file to NES memory.
- * 
- */
-'use strict';
+import { uint8, uint16 } from './utils.js';
 
-function mapper(memory, ppu, buffer) {
-    const nes = new TextDecoder().decode(buffer.slice(0, 3));
-    const eof = buffer[3];
+export function mapper(memory, ppu, file) {
+    const nes = new TextDecoder().decode(file.slice(0, 3));
+    const eof = file[3];
     if (nes !== 'NES' || eof !== 0x1a) throw new Error('Not a valid NES rom');
 
     console.log('Valid NES rom');
 
-    const header = buffer.slice(0, 16);
+    const header = file.slice(0, 16);
     console.log(header);
 
     const prgSize = getPRGSize(header);
     const chrSize = getCHRSize(header);
     const trainingSize = getTrainingSize(header);
 
-    console.log(buffer.length, 'misc rom', buffer.length - header.length - prgSize - chrSize);
+    console.log(file.length, 'misc rom', file.length - header.length - prgSize - chrSize);
     console.log('prg', prgSize);
     console.log('chr', chrSize);
 
@@ -28,8 +23,8 @@ function mapper(memory, ppu, buffer) {
     const chrStart = prgEnd;
     const chrEnd = prgEnd + chrSize;
 
-    const prg = buffer.slice(prgStart, prgEnd);
-    const chr = buffer.slice(chrStart, chrEnd);
+    const prg = file.slice(prgStart, prgEnd);
+    const chr = file.slice(chrStart, chrEnd);
 
     writePRG(memory, prg, prgSize);
     writeCHR(ppu, chr, chrSize);
@@ -64,7 +59,7 @@ function getTrainingSize(header) {
     return 0;
 }
 
-/// Writes PRG contents from rom to memory.
+// Writes PRG contents from rom to memory.
 function writePRG(memory, data, size) {
     const base = 0x8000;
     const maxSize = 32 * 1024;
@@ -78,7 +73,7 @@ function writePRG(memory, data, size) {
     }
 }
 
-/// Writes CHR contents from rom to memory.
+// Writes CHR contents from rom to ppu memory.
 function writeCHR(ppu, data, size) {
     const base = 0x0000;
     const maxSize = 8 * 1024;

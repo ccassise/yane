@@ -1,8 +1,7 @@
-'use strict';
+import { NES } from './src/nes.js';
+import { Renderer }  from './src/renderer.js';
 
 document.getElementById('rom').addEventListener('change', loadRom, false);
-
-const nes = new Worker('./src/yane.js');
 
 const palette = Uint8ClampedArray.from([
     124, 124, 124, 255, 0, 0, 252, 255, 0, 0, 188, 255, 68, 40, 188, 255, 148, 0, 132, 255, 168, 0, 32, 255, 168, 16, 0, 255, 136, 20, 0, 255, 80, 48, 0, 255, 0, 120, 0, 255, 0, 104, 0, 255, 0, 88, 0, 255, 0, 64, 88, 255, 0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255,
@@ -11,88 +10,66 @@ const palette = Uint8ClampedArray.from([
     252, 252, 252, 255, 164, 228, 252, 255, 184, 184, 248, 255, 216, 184, 248, 255, 248, 184, 248, 255, 248, 164, 192, 255, 240, 208, 176, 255, 252, 224, 168, 255, 248, 216, 120, 255, 216, 248, 120, 255, 184, 248, 184, 255, 184, 248, 216, 255, 0, 252, 252, 255, 216, 216, 216, 255, 0, 0, 0, 255, 0, 0, 0, 255
 ]);
 
+drawPalette(50);
 
-const scale = 50;
-const conScale = 3;
-const nesScale = 3;
+import { setOrReset } from './src/utils.js';
 
-const nesScreen = document.getElementById('test-canvas');
-nesScreen.width = 256 * nesScale;
-nesScreen.height = 240 * nesScale;
-const nesScreenCtx = nesScreen.getContext('2d', { alpha: false });
+function setOrReset2(a, b, options) {
+    if (b & options) return a | options;
+    else return a & ~options;
+}
+let a, b, c;
 
-let nesTest = new Uint8ClampedArray(256 * 240 * 4).fill(0);
-const nessy = new ImageData(256 * nesScale, 240 * nesScale);
+a = setOrReset(0, 0x11, 0x11).toString(16);
+b = setOrReset(0x10, 0x01, 0x11).toString(16);
+c = setOrReset(0x10, 0x11, 0x01).toString(16);
+console.log(a, b, c);
+a = setOrReset2(0, 0x11, 0x11).toString(16);
+b = setOrReset2(0x10, 0x01, 0x11).toString(16);
+c = setOrReset2(0x10, 0x11, 0x01).toString(16);
+console.log(a, b, c);
 
-function forever() {
-    for (let i = 0; i < nesTest.length; i += 4) {
-        const pos = Math.floor((Math.random() * 64)) * 4;
-        nesTest[i + 0] = palette[pos + 0];  // R
-        nesTest[i + 1] = palette[pos + 1];  // G
-        nesTest[i + 2] = palette[pos + 2];  // B
-        nesTest[i + 3] = palette[pos + 3];  // A
-    }
-
-    console.time('forever');
-    nearestNeighborInterp(new ImageData(nesTest, 256), nessy);
-    nesScreenCtx.putImageData(nessy, 0, 0);
-    console.timeEnd('forever');
-    setTimeout(forever, 500);
+function drawPalette(scale) {
+    const canvas = document.getElementById('rend');
+    canvas.width = 16 * scale;
+    canvas.height = 4 * scale;
+    const paletteCtx = canvas.getContext('2d', { alpha: false });
+    const paletteRenderer = new Renderer(paletteCtx, 16, 4, scale);
+    paletteRenderer.draw(new ImageData(palette, 16));
 }
 
-const pal = new ImageData(16 * scale, 4 * scale);
-nearestNeighborInterp(new ImageData(palette, 16), pal);
-
-
-const canvas = document.getElementById('rend');
-canvas.width = 16 * scale;
-canvas.height = 4 * scale;
-const ctx = canvas.getContext('2d', { alpha: false });
-ctx.putImageData(pal, 0, 0);
-
-//forever();
-
-/// TODO: Implement with GPU.js
-/// Integer scaling.
-function nearestNeighborInterp(src, dest) {
-    const scale = Math.floor(dest.height / src.height);
-
-    for (let row = 0; row < dest.height; row++) {
-        for (let col = 0; col < dest.width; col++) {
-            const srcRow = Math.floor(row / scale);
-            const srcCol = Math.floor(col / scale);
-            const srcPos = (srcRow * src.width + srcCol) * 4
-            const destPos = (row * dest.width + col) * 4
-
-            dest.data[destPos + 0] = src.data[srcPos + 0];  // R
-            dest.data[destPos + 1] = src.data[srcPos + 1];  // G
-            dest.data[destPos + 2] = src.data[srcPos + 2];  // B
-            dest.data[destPos + 3] = src.data[srcPos + 3];  // A
-        }
-    }
+function drawPatternTable(pattern, scale) {
+    const patternTable = document.getElementById('pattern-table');
+    patternTable.width = 128 * 2 * scale;
+    patternTable.height = 128 * scale;
+    const patternCtx = patternTable.getContext('2d', { alpha: false });
+    const patternTableRenderer = new Renderer(patternCtx, 128 * 2, 128, scale);
+    patternTableRenderer.draw(new ImageData(pattern, 128 * 2));
 }
 
 function loadRom() {
-    if (window.Worker) {
-        const rom = this.files[0];
-        nes.postMessage(rom);
+    const screen = document.getElementById('nes-screen');
+    const nesScale = 2;
+    screen.width = 256 * nesScale;
+    screen.height = 240 * nesScale;
+    const screenCtx = screen.getContext('2d', { alpha: false });
+    const renderer = new Renderer(screenCtx, 256, 240, nesScale);
+    const rom = this.files[0];
+    const reader = new FileReader();
+    reader.readAsArrayBuffer(rom);
 
-        nes.onmessage = function (msg) {
-            if (msg.data.patternTable) {
-                drawPatternTable(msg.data.patternTable, 3);
-            } else {
-                // createDownloadLink(msg.data);
-                // nes.terminate();
-                //
-                // drawPatternTable(msg.data, 3);
-                // console.log(msg);
-                drawFrame(new Uint8ClampedArray(msg.data), 1);
-            }
+    reader.onload = (res) => {
+        try {
+            const buffer = new Uint8Array(res.target.result);
+            const nes = new NES(buffer, renderer);
+            drawPatternTable(nes.patternTable, 2);
+            initKeyUp(nes);
+            initKeydown(nes);
+            nes.run();
+        } catch (e) {
+            console.error(e);
         }
-    } else {
-        console.error('Worker not supported');
     }
-
 }
 
 function createDownloadLink(text) {
@@ -108,34 +85,6 @@ function createDownloadLink(text) {
     document.body.appendChild(p);
 }
 
-function drawPatternTable(pattern, scale) {
-    const patternTable = document.getElementById('pattern-table');
-    patternTable.width = 128 * 2 * scale;
-    patternTable.height = 128 * scale;
-    const patternCtx = patternTable.getContext('2d', { alpha: false });
-    const result = new ImageData(128 * 2 * scale, 128 * scale);
-
-    nearestNeighborInterp(new ImageData(pattern, 128 * 2), result);
-    patternCtx.clearRect(0, 0, patternTable.width, patternTable.height);
-    patternCtx.putImageData(result, 0, 0);
-}
-
-function drawFrame(pattern, scale) {
-    const patternTable = document.getElementById('test-canvas');
-    // patternTable.width = 256 * scale;
-    // patternTable.height = 240 * scale;
-    patternTable.width = 256;
-    patternTable.height = 240;
-    const patternCtx = patternTable.getContext('2d', { alpha: false });
-    // TOOD: this should only change when scale is changed. drawFrame should only scale the image then put image to canvas, nothing else.
-    // const result = new ImageData(256 * scale, 240 * scale);
-
-    // nearestNeighborInterp(new ImageData(pattern, 256), result);
-    // patternCtx.clearRect(0, 0, patternTable.width, patternTable.height);
-    // patternCtx.putImageData(result, 0, 0);
-    patternCtx.putImageData(new ImageData(pattern, 256), 0, 0);
-}
-
 function keyCodeToNesKey(key) {
     switch (key) {
         case 'KeyZ':       return 'A';
@@ -149,16 +98,28 @@ function keyCodeToNesKey(key) {
     }
 }
 
-document.getElementById('test-canvas').addEventListener('keydown', (e) => {
-    const key = e.code;
-    const result = keyCodeToNesKey(key);
-    if (typeof result === 'undefined') return;  // Invalid key press.
-    nes.postMessage({keydown: result});
-});
+function initKeydown(nes) {
+    document.getElementById('nes-screen').addEventListener('keydown', (e) => {
+        switch (e.code) {
+            case 'ArrowUp':
+            case 'ArrowDown':
+            case 'ArrowLeft':
+            case 'ArrowRight':
+                e.preventDefault();
+                break;
+            default: break;
+        }
+        const result = keyCodeToNesKey(e.code);
+        if (typeof result === 'undefined') return;  // Invalid key press.
+        nes.onKeyDown(result);
+    });
+}
 
-document.getElementById('test-canvas').addEventListener('keyup', e => {
-    const key = e.code;
-    const result = keyCodeToNesKey(key);
-    if (typeof result === 'undefined') return;  // Invalid key press.
-    nes.postMessage({keyup: result});
-});
+function initKeyUp(nes) {
+    document.getElementById('nes-screen').addEventListener('keyup', e => {
+        const key = e.code;
+        const result = keyCodeToNesKey(key);
+        if (typeof result === 'undefined') return;  // Invalid key press.
+        nes.onKeyUp(result);
+    });
+}
