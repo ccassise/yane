@@ -13,12 +13,20 @@
 
     <input type="file" id="rom">
 
-    <!-- <canvas id="rend" height="150" width="160"></canvas> -->
     <canvas id="pattern-table" style="border: 1px solid blue"></canvas>
     <canvas id="rend" style="border: 1px solid black"></canvas>
-    <canvas id="test-canvas" tabindex="1" style="border: 1px solid green"></canvas>
+    <canvas id="nes-screen" tabindex="1" style="border: 1px solid green"></canvas>
 
     <script type="module" src="index.js"></script>
+    <script type="module" src="src/cpu.js"></script>
+    <script type="module" src="src/interrupt.js"></script>
+    <script type="module" src="src/mapper.js"></script>
+    <script type="module" src="src/memory.js"></script>
+    <script type="module" src="src/nes.js"></script>
+    <script type="module" src="src/ppu.js"></script>
+    <script type="module" src="src/renderer.js"></script>
+    <script type="module" src="src/standard-controller.js"></script>
+    <script type="module" src="src/utils.js"></script>
 </body>
 
 </html>
