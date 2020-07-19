@@ -12,23 +12,6 @@ const palette = Uint8ClampedArray.from([
 
 drawPalette(50);
 
-import { setOrReset } from './src/utils.js';
-
-function setOrReset2(a, b, options) {
-    if (b & options) return a | options;
-    else return a & ~options;
-}
-let a, b, c;
-
-a = setOrReset(0, 0x11, 0x11).toString(16);
-b = setOrReset(0x10, 0x01, 0x11).toString(16);
-c = setOrReset(0x10, 0x11, 0x01).toString(16);
-console.log(a, b, c);
-a = setOrReset2(0, 0x11, 0x11).toString(16);
-b = setOrReset2(0x10, 0x01, 0x11).toString(16);
-c = setOrReset2(0x10, 0x11, 0x01).toString(16);
-console.log(a, b, c);
-
 function drawPalette(scale) {
     const canvas = document.getElementById('rend');
     canvas.width = 16 * scale;
